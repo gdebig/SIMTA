@@ -34,11 +34,15 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash VARCHAR(255) NOT NULL,
     is_active BOOLEAN DEFAULT TRUE,
     approval_status VARCHAR(20) DEFAULT 'APPROVED',
+    must_change_password BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 ALTER TABLE users
     ADD COLUMN IF NOT EXISTS approval_status VARCHAR(20) DEFAULT 'APPROVED';
+
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS user_roles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -27,6 +27,9 @@
 
       <div id="userChip" class="hidden" style="display:flex;align-items:center;gap:0.6rem;">
         <span id="currentUserName" style="font-size:0.85rem;font-weight:600;"></span>
+        <button class="btn btn-yellow btn-sm" id="btnOpenProfile" type="button">
+          👤 Profil &amp; Password
+        </button>
         <button class="btn btn-outline btn-sm" id="btnLogout" style="border-color:#F8C300;color:#F8C300;">
           Keluar
         </button>
@@ -208,6 +211,97 @@
 
     <!-- DASHBOARD UTAMA SETELAH LOGIN -->
     <section id="appSection" class="hidden">
+      <!-- PANEL EDIT PROFIL & UBAH PASSWORD MANDIRI (ADMIN, DOSEN, MAHASISWA) -->
+      <div id="profileSectionCard" class="card highlight-panel hidden" style="margin-bottom:1.5rem;">
+        <div class="card-header">
+          <div class="card-title" id="profileCardTitle">Pengaturan Profil &amp; Ubah Password Akun</div>
+          <button type="button" class="btn btn-outline btn-sm" id="btnCloseProfile">
+            Tutup Panel Profil
+          </button>
+        </div>
+
+        <div id="mustChangePasswordBanner" class="alert alert-error hidden" style="margin-bottom:1rem;">
+          <strong>⚠️ Wajib Mengubah Password Awal (Initial Password):</strong><br />
+          Anda login menggunakan password awal instalasi sistem. Demi keamanan operasional website SIMTA, silakan <strong>ubah password Anda terlebih dahulu</strong> pada form di bawah ini sebelum mulai mengelola sistem.
+        </div>
+
+        <form id="selfProfileForm">
+          <div class="grid-2" style="gap:1rem;">
+            <div>
+              <h4 style="color:var(--navy-primary);margin-bottom:0.6rem;font-size:0.92rem;">Data Profil Pengguna</h4>
+              <div class="form-group">
+                <label class="form-label" for="profileNipNpm">NIP / NPM</label>
+                <input type="text" id="profileNipNpm" class="form-control" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="profileName">Nama Lengkap &amp; Gelar</label>
+                <input type="text" id="profileName" class="form-control" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="profileEmail">Email UI</label>
+                <input type="email" id="profileEmail" class="form-control" required />
+              </div>
+
+              <div id="profileMahasiswaFields" class="hidden">
+                <div class="grid-2" style="gap:0.75rem;grid-template-columns:1fr 1fr;">
+                  <div class="form-group">
+                    <label class="form-label" for="profileDegree">Jenjang Studi</label>
+                    <select id="profileDegree" class="form-control">
+                      <option value="S1">S1 (Sarjana)</option>
+                      <option value="S2">S2 (Magister)</option>
+                      <option value="S3">S3 (Doktor)</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label" for="profileAcademicYear">Tahun Ajaran Mulai</label>
+                    <input type="text" id="profileAcademicYear" class="form-control" />
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="profileDosenPembimbing">Dosen Pembimbing</label>
+                  <select id="profileDosenPembimbing" class="form-control">
+                    <option value="">-- Pilih Dosen Pembimbing --</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Judul Tugas Akhir / Tesis / Disertasi (HTML Editor)</label>
+                  <div class="wysiwyg-wrapper">
+                    <div class="wysiwyg-toolbar" data-target="profileThesisEditor">
+                      <button type="button" class="wysiwyg-btn" data-cmd="bold"><b>B</b></button>
+                      <button type="button" class="wysiwyg-btn" data-cmd="italic"><i>I</i></button>
+                      <button type="button" class="wysiwyg-btn" data-cmd="removeFormat">Clear</button>
+                    </div>
+                    <div id="profileThesisEditor" class="wysiwyg-editor compact" contenteditable="true"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h4 style="color:var(--navy-primary);margin-bottom:0.6rem;font-size:0.92rem;">Keamanan &amp; Ubah Password</h4>
+              <p id="profilePasswordHelpText" style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.75rem;">
+                Kosongkan kolom password di bawah ini jika Anda hanya ingin mengubah data profil tanpa mengganti password.
+              </p>
+              <div class="form-group">
+                <label class="form-label" for="profileCurrentPassword">Password Saat Ini (Initial / Lama)</label>
+                <input type="password" id="profileCurrentPassword" class="form-control" placeholder="Masukkan password saat ini" autocomplete="current-password" />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="profileNewPassword">Password Baru (Minimal 6 Karakter)</label>
+                <input type="password" id="profileNewPassword" class="form-control" placeholder="Masukkan password baru yang berbeda" autocomplete="new-password" />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="profileConfirmPassword">Konfirmasi Password Baru</label>
+                <input type="password" id="profileConfirmPassword" class="form-control" placeholder="Ulangi password baru" autocomplete="new-password" />
+              </div>
+              <button type="submit" class="btn btn-primary" id="btnSaveProfile" style="width:100%;margin-top:0.4rem;">
+                Simpan Perubahan Profil &amp; Password
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+
       <!-- Ringkasan Statistik -->
       <div class="grid-3" style="margin-bottom:1.5rem;" id="statsContainer"></div>
 
@@ -349,7 +443,7 @@
                   type="search"
                   id="adminSearchUser"
                   class="form-control search-input-box"
-                  placeholder="🔍 Cari nama pengguna / NIP / NPM..."
+                  placeholder="🔍 Cari nama mahasiswa / pengguna / judul TA..."
                 />
                 <select id="filterApprovalStatus" class="form-control" style="width:auto;padding:0.35rem 0.65rem;font-size:0.82rem;">
                   <option value="">Semua Status Approval</option>
@@ -446,7 +540,7 @@
                 type="search"
                 id="dosenSearchStudent"
                 class="form-control search-input-box"
-                placeholder="🔍 Cari nama mahasiswa / NPM..."
+                placeholder="🔍 Cari nama mahasiswa / judul tugas akhir..."
               />
               <select id="dosenFilterScope" class="form-control" style="width:auto;padding:0.35rem 0.65rem;font-size:0.82rem;">
                 <option value="mine">Mahasiswa Bimbingan Saya</option>

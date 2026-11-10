@@ -61,12 +61,10 @@ async function seedDatabase({ closePool = true, resetAll = false } = {}) {
     const adminPasswordHash = hashPassword(DEFAULT_ADMIN.password);
 
     const adminRes = await client.query(
-      `INSERT INTO users (nip_or_npm, name, email, password_hash, is_active, approval_status)
-       VALUES ($1, $2, $3, $4, TRUE, 'APPROVED')
+      `INSERT INTO users (nip_or_npm, name, email, password_hash, is_active, approval_status, must_change_password)
+       VALUES ($1, $2, $3, $4, TRUE, 'APPROVED', TRUE)
        ON CONFLICT (nip_or_npm) DO UPDATE
-       SET name = EXCLUDED.name,
-           email = EXCLUDED.email,
-           is_active = TRUE,
+       SET is_active = TRUE,
            approval_status = 'APPROVED'
        RETURNING id`,
       [DEFAULT_ADMIN.nip, DEFAULT_ADMIN.name, DEFAULT_ADMIN.email, adminPasswordHash]

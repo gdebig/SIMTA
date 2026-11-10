@@ -17,13 +17,18 @@
 - **Pendaftaran Akun Mandiri (*Self-Registration*) & Approval Admin:** Mahasiswa dan Dosen dapat mendaftarkan akunnya sendiri dari halaman awal. Akun baru berstatus `PENDING` dan baru dapat digunakan login setelah disetujui (*Approve*) oleh Admin.
 
 ### 2. Mode Pengguna
+- **Pengaturan Profil & Password Mandiri (Seluruh Role):**
+  - Setiap pengguna (**Admin**, **Dosen**, dan **Mahasiswa**) memiliki menu **👤 Profil & Password** di *navbar* untuk memperbarui profil dan mengganti kata sandi masing-masing.
+  - **Wajib Ubah Initial Password Admin:** Saat aplikasi baru diinstal dan Admin login pertama kali menggunakan *initial/general password*, sistem otomatis meminta Admin mengubah *password* awal tersebut sebelum dapat mengoperasikan website.
 - **Mode Administrator (`ADMIN`):**
   - Mengelola seluruh akun pengguna (Tambah, Ubah, Hapus, dan Setujui pendaftaran mandiri).
+  - melakukan pencarian berdasarkan **nama mahasiswa/pengguna** maupun **judul tugas akhir**.
   - Memantau status keaktifan Dosen/Admin (`Aktif` / `Tidak Aktif`) serta status bimbingan Mahasiswa (`Sedang Dalam Bimbingan`, `Sudah Lulus`, `Tidak Selesai`).
   - Mengklik nama mahasiswa untuk meninjau riwayat laporan kemajuan, lampiran berkas, dan komentar evaluasi dosen pembimbing.
   - Melihat seluruh **Log Aktivitas** sistem dilengkapi fitur pencarian pengguna dan *pagination* dinamis (5, 10, 25, 50 baris).
 - **Mode Dosen Pembimbing (`DOSEN`):**
   - Melihat daftar mahasiswa bimbingan beserta tahun ajaran mulai, jenjang studi (`S1`/`S2`/`S3`), judul tugas akhir, dan status bimbingan.
+  - Melakukan pencarian mahasiswa maupun laporan berdasarkan **nama mahasiswa** atau **judul tugas akhir**.
   - Memberikan komentar evaluasi, catatan tindak lanjut (*follow-up notes*), dan memperbarui status laporan (`SUBMITTED`, `REVIEWED`, `APPROVED`).
   - Memantau log aktivitas untuk akunnya sendiri maupun mahasiswa di bawah bimbingannya.
 - **Mode Mahasiswa (`MAHASISWA`):**

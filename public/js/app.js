@@ -962,6 +962,7 @@ async function loadDosenReports() {
   const scope = document.getElementById('dosenFilterScope').value;
   const degree = document.getElementById('dosenFilterDegree').value;
   const status = document.getElementById('dosenFilterStatus').value;
+  const searchVal = document.getElementById('dosenSearchStudent')?.value.trim() || '';
   const params = new URLSearchParams();
 
   if (state.selectedDosenStudentId) {
@@ -972,6 +973,7 @@ async function loadDosenReports() {
 
   if (degree) params.set('degree', degree);
   if (status) params.set('status', status);
+  if (searchVal) params.set('search', searchVal);
 
   const reports = await apiFetch(`/api/reports?${params.toString()}`);
   const listEl = document.getElementById('dosenReportsList');
@@ -1519,6 +1521,86 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   document.getElementById('dosenSearchStudent').addEventListener('input', () => {
     loadDosenStudents();
+    loadDosenReports();
+  });
+
+  // Tombol Buka & Tutup Panel Edit Profil & Password Mandiri
+  document.getElementById('btnOpenProfile').addEventListener('click', () => {
+    openSelfProfilePanel({ forceInitialPasswordChange: Boolean(state.user?.must_change_password) });
+  });
+
+  document.getElementById('btnCloseProfile').addEventListener('click', () => {
+    if (state.user?.must_change_password) {
+      showAlert(
+        'Anda wajib mengubah password awal (initial password) terlebih dahulu sebelum menutup panel ini.',
+        'error'
+      );
+      return;
+    }
+    document.getElementById('profileSectionCard').classList.add('hidden');
+  });
+
+  // Submit Form Edit Profil & Ubah Password Mandiri (Admin, Dosen, Mahasiswa)
+  document.getElementById('selfProfileForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nip_or_npm = document.getElementById('profileNipNpm').value.trim();
+    const name = document.getElementById('profileName').value.trim();
+    const email = document.getElementById('profileEmail').value.trim();
+    const current_password = document.getElementById('profileCurrentPassword').value;
+    const new_password = document.getElementById('profileNewPassword').value;
+    const confirm_password = document.getElementById('profileConfirmPassword').value;
+
+    if (state.user?.must_change_password && !new_password.trim()) {
+      showAlert(
+        'Anda wajib memasukkan password baru untuk mengganti password awal (initial password).',
+        'error'
+      );
+      return;
+    }
+
+    if (new_password.trim()) {
+      if (!current_password) {
+        showAlert('Masukkan password saat ini untuk mengonfirmasi perubahan password.', 'error');
+        return;
+      }
+      if (new_password !== confirm_password) {
+        showAlert('Konfirmasi password baru tidak cocok dengan password baru.', 'error');
+        return;
+      }
+    }
+
+    const payload = {
+      nip_or_npm,
+      name,
+      email,
+      current_password: current_password || undefined,
+      new_password: new_password || undefined
+    };
+
+    if ((state.user?.roles || []).includes('MAHASISWA')) {
+      payload.degree = document.getElementById('profileDegree').value;
+      payload.start_academic_year = document.getElementById('profileAcademicYear').value;
+      payload.dosen_pembimbing_id = document.getElementById('profileDosenPembimbing').value || null;
+      payload.thesis_title = document.getElementById('profileThesisEditor').innerHTML.trim();
+    }
+
+    try {
+      const res = await apiFetch('/api/profile', {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      });
+      state.token = res.token;
+      state.user = res.user;
+      sessionStorage.setItem('simta_token', res.token);
+      document.getElementById('profileCurrentPassword').value = '';
+      document.getElementById('profileNewPassword').value = '';
+      document.getElementById('profileConfirmPassword').value = '';
+      document.getElementById('profileSectionCard').classList.add('hidden');
+      showAlert(res.message, 'success');
+      enterAuthenticatedState();
+    } catch (err) {
+      showAlert(err.message, 'error');
+    }
   });
 
   // Filter pada mode Dosen
@@ -1632,12 +1714,90 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
+async function openSelfProfilePanel({ forceInitialPasswordChange = false } = {}) {
+  if (!state.user) return;
+  const card = document.getElementById('profileSectionCard');
+  const banner = document.getElementById('mustChangePasswordBanner');
+  const btnClose = document.getElementById('btnCloseProfile');
+  const titleEl = document.getElementById('profileCardTitle');
+  const helpText = document.getElementById('profilePasswordHelpText');
+  const mhsFields = document.getElementById('profileMahasiswaFields');
+
+  document.getElementById('profileNipNpm').value = state.user.nip_or_npm || '';
+  document.getElementById('profileName').value = state.user.name || '';
+  document.getElementById('profileEmail').value = state.user.email || '';
+  document.getElementById('profileCurrentPassword').value = '';
+  document.getElementById('profileNewPassword').value = '';
+  document.getElementById('profileConfirmPassword').value = '';
+
+  const isMahasiswa = (state.user.roles || []).includes('MAHASISWA');
+  if (isMahasiswa) {
+    mhsFields.classList.remove('hidden');
+    const mp = state.user.mahasiswa_profile || {};
+    document.getElementById('profileDegree').value = mp.degree || 'S1';
+    document.getElementById('profileAcademicYear').value = mp.start_academic_year || '2025/2026';
+    document.getElementById('profileThesisEditor').innerHTML = mp.thesis_title || '';
+
+    try {
+      const dosenList = await apiFetch('/api/public/dosen');
+      const selectEl = document.getElementById('profileDosenPembimbing');
+      selectEl.innerHTML = '<option value="">-- Pilih Dosen Pembimbing --</option>';
+      dosenList.forEach((d) => {
+        const opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = `${d.name} (${d.nip_or_npm})`;
+        selectEl.appendChild(opt);
+      });
+      selectEl.value = mp.dosen_pembimbing_id || '';
+    } catch {
+      // Abaikan jika gagal memuat daftar dosen
+    }
+  } else {
+    mhsFields.classList.add('hidden');
+  }
+
+  if (forceInitialPasswordChange) {
+    banner.classList.remove('hidden');
+    btnClose.classList.add('hidden');
+    titleEl.textContent = 'Wajib Ubah Password Awal Administrator & Pengaturan Profil';
+    helpText.textContent =
+      'Wajib diisi: Masukkan password awal saat ini dan buat password baru (minimal 6 karakter) yang berbeda.';
+    document.getElementById('profileCurrentPassword').required = true;
+    document.getElementById('profileNewPassword').required = true;
+    document.getElementById('profileConfirmPassword').required = true;
+  } else {
+    banner.classList.add('hidden');
+    btnClose.classList.remove('hidden');
+    titleEl.textContent = `Pengaturan Profil & Ubah Password (${(state.user.roles || []).join(' + ')})`;
+    helpText.textContent =
+      'Kosongkan kolom password di bawah ini jika Anda hanya ingin mengubah data profil tanpa mengganti password.';
+    document.getElementById('profileCurrentPassword').required = false;
+    document.getElementById('profileNewPassword').required = false;
+    document.getElementById('profileConfirmPassword').required = false;
+  }
+
+  card.classList.remove('hidden');
+  card.scrollIntoView({ behavior: 'smooth' });
+}
+
 function enterAuthenticatedState() {
   document.getElementById('loginSection').classList.add('hidden');
   document.getElementById('appSection').classList.remove('hidden');
   const userChip = document.getElementById('userChip');
   userChip.classList.remove('hidden');
   document.getElementById('currentUserName').textContent = `${state.user.name} (${state.user.roles.join(' + ')})`;
+
+  // Jika Admin pertama kali login menggunakan initial/general password, wajib ubah password terlebih dahulu
+  if (state.user.must_change_password) {
+    document.getElementById('roleSwitcherContainer').classList.add('hidden');
+    document.getElementById('statsContainer').innerHTML = '';
+    document.getElementById('adminView').classList.add('hidden');
+    document.getElementById('dosenView').classList.add('hidden');
+    document.getElementById('mahasiswaView').classList.add('hidden');
+    openSelfProfilePanel({ forceInitialPasswordChange: true });
+    return;
+  }
+
   renderRoleSwitcher();
   switchActiveRoleView();
 }

@@ -473,7 +473,7 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
     assert.ok(inactiveDosen);
     assert.strictEqual(inactiveDosen.is_active, false);
 
-    // Uji fitur pencarian nama pengguna / mahasiswa (?search=...)
+    // Uji fitur pencarian berdasarkan nama mahasiswa (?search=Dimas) maupun judul tugas akhir (?search=Inverter Tiga Fasa)
     const searchRes = await fetch(`${baseUrl}/api/users?search=Dimas`, {
       headers: { Authorization: `Bearer ${adminToken}` }
     });
@@ -481,6 +481,24 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
     const searchList = await searchRes.json();
     assert.strictEqual(searchList.length, 1);
     assert.strictEqual(searchList[0].name, 'Dimas Pratama');
+
+    const searchThesisRes = await fetch(
+      `${baseUrl}/api/users?search=${encodeURIComponent('Inverter Tiga Fasa')}`,
+      { headers: { Authorization: `Bearer ${adminToken}` } }
+    );
+    assert.strictEqual(searchThesisRes.status, 200);
+    const searchThesisList = await searchThesisRes.json();
+    assert.strictEqual(searchThesisList.length, 1);
+    assert.strictEqual(searchThesisList[0].nip_or_npm, '2106701234');
+
+    const searchReportsByThesisRes = await fetch(
+      `${baseUrl}/api/reports?search=${encodeURIComponent('Inverter Tiga Fasa')}`,
+      { headers: { Authorization: `Bearer ${adminToken}` } }
+    );
+    assert.strictEqual(searchReportsByThesisRes.status, 200);
+    const reportsByThesis = await searchReportsByThesisRes.json();
+    assert.ok(reportsByThesis.length >= 1);
+    assert.strictEqual(reportsByThesis[0].mahasiswa_npm, '2106701234');
   });
 
   test('Mode Admin: Tambah, Ubah (Edit), dan Hapus (Delete) akun berjalan akurat', async () => {
@@ -748,5 +766,96 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
       }
     });
     assert.strictEqual(replayAfterLogoutRes.status, 401);
+  });
+
+  test('Wajib Ubah Initial Password Admin saat Pertama Kali Login & Edit Profil/Password untuk Admin, Dosen, dan Mahasiswa', async () => {
+    // 1. Saat Admin login pertama kali menggunakan initial password, flag must_change_password bernilai true
+    const initLoginRes = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        identifier: DEFAULT_ADMIN.email,
+        password: DEFAULT_ADMIN.password
+      })
+    });
+    assert.strictEqual(initLoginRes.status, 200);
+    const initLoginData = await initLoginRes.json();
+    assert.strictEqual(initLoginData.user.must_change_password, true);
+
+    // 2. Percobaan menyimpan profil Admin tanpa mengubah initial password harus ditolak (400)
+    const noPassChangeRes = await fetch(`${baseUrl}/api/profile`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${initLoginData.token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        nip_or_npm: DEFAULT_ADMIN.nip,
+        name: DEFAULT_ADMIN.name,
+        email: DEFAULT_ADMIN.email
+      })
+    });
+    assert.strictEqual(noPassChangeRes.status, 400);
+
+    // 3. Percobaan mengganti initial password dengan password yang sama persis harus ditolak (400)
+    const samePassRes = await fetch(`${baseUrl}/api/profile`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${initLoginData.token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        nip_or_npm: DEFAULT_ADMIN.nip,
+        name: DEFAULT_ADMIN.name,
+        email: DEFAULT_ADMIN.email,
+        current_password: DEFAULT_ADMIN.password,
+        new_password: DEFAULT_ADMIN.password
+      })
+    });
+    assert.strictEqual(samePassRes.status, 400);
+
+    // 4. Admin berhasil mengubah initial password ke password baru dan memperbarui profilnya
+    const newAdminPass = 'AdminBaru#2026';
+    const changeAdminPassRes = await fetch(`${baseUrl}/api/profile`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${initLoginData.token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        nip_or_npm: DEFAULT_ADMIN.nip,
+        name: 'Administrator Utama DTE UI',
+        email: DEFAULT_ADMIN.email,
+        current_password: DEFAULT_ADMIN.password,
+        new_password: newAdminPass
+      })
+    });
+    assert.strictEqual(changeAdminPassRes.status, 200);
+    const updatedAdminData = await changeAdminPassRes.json();
+    assert.strictEqual(updatedAdminData.user.must_change_password, false);
+    assert.strictEqual(updatedAdminData.user.name, 'Administrator Utama DTE UI');
+
+    // 5. Dosen dan Mahasiswa juga dapat mengedit profil dan password masing-masing melalui PUT /api/profile
+    const mhsProfileRes = await fetch(`${baseUrl}/api/profile`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${mahasiswaToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        nip_or_npm: '2106701234',
+        name: 'Dimas Pratama, S.T.',
+        email: 'dimas.pratama@ui.ac.id',
+        degree: 'S1',
+        start_academic_year: '2025/2026',
+        thesis_title: '<p>Desain Sistem Kendali Inverter Tiga Fasa Generasi Baru</p>',
+        current_password: 'simta123',
+        new_password: 'mhsBaru123'
+      })
+    });
+    assert.strictEqual(mhsProfileRes.status, 200);
+    const mhsProfileData = await mhsProfileRes.json();
+    assert.strictEqual(mhsProfileData.user.name, 'Dimas Pratama, S.T.');
+    assert.ok(mhsProfileData.user.mahasiswa_profile.thesis_title.includes('Generasi Baru'));
   });
 });

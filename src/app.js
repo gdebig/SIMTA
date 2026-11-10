@@ -416,12 +416,14 @@ app.post('/api/auth/login', async (req, res) => {
 
     validateUserRoles(user.roles);
 
+    const mustChangePassword = Boolean(user.must_change_password);
     const payload = {
       id: user.id,
       nip_or_npm: user.nip_or_npm,
       name: user.name,
       email: user.email,
-      roles: user.roles
+      roles: user.roles,
+      must_change_password: mustChangePassword
     };
     const userAgent = req.headers['user-agent'] || 'default-client';
     const token = createToken(payload, { userAgent, ttlMs: SESSION_IDLE_TIMEOUT_MS });
@@ -432,7 +434,7 @@ app.post('/api/auth/login', async (req, res) => {
       actorIdentifier: user.nip_or_npm,
       actorRoles: user.roles,
       actionType: 'LOGIN',
-      description: `Pengguna ${user.name} (${user.nip_or_npm}) berhasil login ke aplikasi SIMTA.`,
+      description: `Pengguna ${user.name} (${user.nip_or_npm}) berhasil login ke aplikasi SIMTA${mustChangePassword ? ' (Wajib ubah password awal)' : ''}.`,
       targetUserId: user.id
     });
 
@@ -443,6 +445,7 @@ app.post('/api/auth/login', async (req, res) => {
         ...payload,
         is_active: user.is_active,
         approval_status: user.approval_status || 'APPROVED',
+        must_change_password: mustChangePassword,
         mahasiswa_profile: user.roles.includes('MAHASISWA')
           ? {
               degree: user.degree,
@@ -468,7 +471,9 @@ app.post('/api/auth/logout', authenticate, async (req, res) => {
 app.get('/api/auth/me', authenticate, async (req, res) => {
   try {
     const userRes = await db.query(
-      `SELECT u.id, u.nip_or_npm, u.name, u.email, u.is_active, u.approval_status, u.created_at,
+      `SELECT u.id, u.nip_or_npm, u.name, u.email, u.is_active, u.approval_status,
+              COALESCE(u.must_change_password, FALSE) AS must_change_password,
+              u.created_at,
               COALESCE(ARRAY_AGG(ur.role::text) FILTER (WHERE ur.role IS NOT NULL), '{}') AS roles,
               mp.degree, mp.start_academic_year, mp.thesis_title, mp.dosen_pembimbing_id,
               mp.supervision_status,
@@ -492,6 +497,7 @@ app.get('/api/auth/me', authenticate, async (req, res) => {
       email: u.email,
       is_active: u.is_active,
       approval_status: u.approval_status || 'APPROVED',
+      must_change_password: Boolean(u.must_change_password),
       roles: u.roles,
       mahasiswa_profile: u.roles.includes('MAHASISWA')
         ? {
@@ -506,6 +512,191 @@ app.get('/api/auth/me', authenticate, async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Endpoint Edit Profil & Ubah Password Mandiri (Admin, Dosen, Mahasiswa)
+// Sekaligus menyelesaikan kewajiban ubah initial/general password bagi Admin
+app.put('/api/profile', authenticate, async (req, res) => {
+  const {
+    nip_or_npm,
+    name,
+    email,
+    current_password,
+    new_password,
+    degree,
+    start_academic_year,
+    dosen_pembimbing_id,
+    thesis_title
+  } = req.body;
+
+  const cleanNipNpm = sanitizePlainText(nip_or_npm);
+  const cleanName = sanitizePlainText(name);
+  const cleanEmail = sanitizePlainText(email);
+  const cleanYear = sanitizePlainText(start_academic_year);
+
+  if (!cleanNipNpm || !cleanName || !cleanEmail) {
+    return res.status(400).json({ error: 'NIP/NPM, nama lengkap, dan email wajib diisi.' });
+  }
+
+  if (dosen_pembimbing_id && !isValidUuid(dosen_pembimbing_id)) {
+    return res.status(400).json({ error: 'ID Dosen Pembimbing tidak valid.' });
+  }
+
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+
+    const existingRes = await client.query(`SELECT * FROM users WHERE id = $1 FOR UPDATE`, [req.user.id]);
+    if (existingRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Akun pengguna tidak ditemukan.' });
+    }
+    const currentUser = existingRes.rows[0];
+    const mustChange = Boolean(currentUser.must_change_password);
+    const wantsPasswordChange = typeof new_password === 'string' && new_password.trim().length > 0;
+
+    if (mustChange && !wantsPasswordChange) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'Anda wajib mengubah password awal (initial password) terlebih dahulu sebelum dapat mengoperasikan aplikasi.'
+      });
+    }
+
+    let updatedPasswordHash = currentUser.password_hash;
+    let nextMustChangePassword = mustChange;
+
+    if (wantsPasswordChange) {
+      if (!current_password || typeof current_password !== 'string') {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Password saat ini wajib diisi untuk mengubah password.' });
+      }
+      if (!verifyPassword(current_password, currentUser.password_hash)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Password saat ini yang Anda masukkan tidak sesuai.' });
+      }
+      const trimmedNew = new_password.trim();
+      if (trimmedNew.length < 6) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Password baru minimal harus terdiri dari 6 karakter.' });
+      }
+      if (trimmedNew === current_password.trim() || verifyPassword(trimmedNew, currentUser.password_hash)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: 'Password baru tidak boleh sama dengan password awal / password saat ini.'
+        });
+      }
+      updatedPasswordHash = hashPassword(trimmedNew);
+      nextMustChangePassword = false;
+    }
+
+    await client.query(
+      `UPDATE users
+       SET nip_or_npm = $2,
+           name = $3,
+           email = $4,
+           password_hash = $5,
+           must_change_password = $6
+       WHERE id = $1`,
+      [req.user.id, cleanNipNpm, cleanName, cleanEmail, updatedPasswordHash, nextMustChangePassword]
+    );
+
+    if (req.user.roles.includes('MAHASISWA')) {
+      const validDegree = degree && VALID_DEGREES.includes(degree) ? degree : null;
+      const cleanThesis =
+        thesis_title !== undefined && thesis_title !== null ? sanitizeEditorContent(thesis_title) : null;
+
+      await client.query(
+        `UPDATE mahasiswa_profiles
+         SET degree = COALESCE($2, degree),
+             start_academic_year = COALESCE($3, start_academic_year),
+             thesis_title = COALESCE($4, thesis_title),
+             dosen_pembimbing_id = CASE WHEN $5::boolean THEN $6::uuid ELSE dosen_pembimbing_id END
+         WHERE user_id = $1`,
+        [
+          req.user.id,
+          validDegree,
+          cleanYear || null,
+          cleanThesis,
+          dosen_pembimbing_id !== undefined,
+          dosen_pembimbing_id || null
+        ]
+      );
+    }
+
+    await recordActivityLog(
+      {
+        userId: req.user.id,
+        actorName: cleanName,
+        actorIdentifier: cleanNipNpm,
+        actorRoles: req.user.roles,
+        actionType: wantsPasswordChange ? 'CHANGE_PASSWORD' : 'UPDATE_PROFILE',
+        description: wantsPasswordChange
+          ? `Pengguna ${cleanName} (${cleanNipNpm}) memperbarui profil dan mengubah password akun.`
+          : `Pengguna ${cleanName} (${cleanNipNpm}) memperbarui data profil akun.`,
+        targetUserId: req.user.id
+      },
+      client
+    );
+
+    await client.query('COMMIT');
+
+    const refreshedRes = await db.query(
+      `SELECT u.id, u.nip_or_npm, u.name, u.email, u.is_active, u.approval_status,
+              COALESCE(u.must_change_password, FALSE) AS must_change_password,
+              COALESCE(ARRAY_AGG(ur.role::text) FILTER (WHERE ur.role IS NOT NULL), '{}') AS roles,
+              mp.degree, mp.start_academic_year, mp.thesis_title, mp.dosen_pembimbing_id,
+              mp.supervision_status,
+              dp.name AS dosen_pembimbing_name
+       FROM users u
+       LEFT JOIN user_roles ur ON ur.user_id = u.id
+       LEFT JOIN mahasiswa_profiles mp ON mp.user_id = u.id
+       LEFT JOIN users dp ON dp.id = mp.dosen_pembimbing_id
+       WHERE u.id = $1
+       GROUP BY u.id, mp.user_id, dp.name`,
+      [req.user.id]
+    );
+    const u = refreshedRes.rows[0];
+
+    const newPayload = {
+      id: u.id,
+      nip_or_npm: u.nip_or_npm,
+      name: u.name,
+      email: u.email,
+      roles: u.roles,
+      must_change_password: Boolean(u.must_change_password)
+    };
+    const userAgent = req.headers['user-agent'] || 'default-client';
+    revokeToken(req.sessionToken);
+    const newToken = createToken(newPayload, { userAgent, ttlMs: SESSION_IDLE_TIMEOUT_MS });
+
+    res.json({
+      message: wantsPasswordChange
+        ? 'Profil dan password berhasil diperbarui.'
+        : 'Profil pengguna berhasil diperbarui.',
+      token: newToken,
+      user: {
+        ...newPayload,
+        is_active: u.is_active,
+        approval_status: u.approval_status || 'APPROVED',
+        must_change_password: Boolean(u.must_change_password),
+        mahasiswa_profile: u.roles.includes('MAHASISWA')
+          ? {
+              degree: u.degree,
+              start_academic_year: u.start_academic_year,
+              thesis_title: u.thesis_title,
+              dosen_pembimbing_id: u.dosen_pembimbing_id,
+              dosen_pembimbing_name: u.dosen_pembimbing_name,
+              supervision_status: u.supervision_status || 'DALAM_BIMBINGAN'
+            }
+          : null
+      }
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(400).json({ error: `Gagal memperbarui profil: ${err.message}` });
+  } finally {
+    client.release();
   }
 });
 
@@ -654,7 +845,9 @@ app.get('/api/users', authenticate, async (req, res) => {
     if (search && typeof search === 'string' && search.trim().length > 0) {
       const cleanSearch = `%${sanitizePlainText(search.trim())}%`;
       params.push(cleanSearch);
-      conditions.push(`(u.name ILIKE $${params.length} OR u.nip_or_npm ILIKE $${params.length} OR u.email ILIKE $${params.length})`);
+      conditions.push(
+        `(u.name ILIKE $${params.length} OR u.nip_or_npm ILIKE $${params.length} OR u.email ILIKE $${params.length} OR COALESCE(REGEXP_REPLACE(mp.thesis_title, '<[^>]+>', ' ', 'g'), '') ILIKE $${params.length})`
+      );
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -1270,7 +1463,7 @@ app.get('/api/reports/export/excel', authenticate, async (req, res) => {
 });
 
 app.get('/api/reports', authenticate, async (req, res) => {
-  const { mahasiswa_id, dosen_pembimbing_id, degree, status, academic_year_id } = req.query;
+  const { mahasiswa_id, dosen_pembimbing_id, degree, status, academic_year_id, search } = req.query;
 
   try {
     const params = [];
@@ -1308,6 +1501,14 @@ app.get('/api/reports', authenticate, async (req, res) => {
     if (academic_year_id) {
       params.push(sanitizePlainText(academic_year_id));
       conditions.push(`pr.academic_year_id = $${params.length}`);
+    }
+
+    if (search && typeof search === 'string' && search.trim().length > 0) {
+      const cleanSearch = `%${sanitizePlainText(search.trim())}%`;
+      params.push(cleanSearch);
+      conditions.push(
+        `(u.name ILIKE $${params.length} OR u.nip_or_npm ILIKE $${params.length} OR pr.title ILIKE $${params.length} OR COALESCE(REGEXP_REPLACE(mp.thesis_title, '<[^>]+>', ' ', 'g'), '') ILIKE $${params.length})`
+      );
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
