@@ -74,3 +74,4 @@ else
   echo "PM2 tidak ditemukan. Menjalankan server secara langsung dengan NODE_ENV=production..."
   NODE_ENV=production exec node src/server.js
 fi
+
