@@ -247,26 +247,7 @@ async function apiFetch(url, options = {}) {
   return data;
 }
 
-// 1. Cek Koneksi PostgreSQL & Muat Daftar Dosen Publik untuk Form Registrasi Mandiri
-async function checkDatabaseStatus() {
-  const dot = document.getElementById('dbStatusDot');
-  const text = document.getElementById('dbStatusText');
-  try {
-    const res = await fetch('/api/health');
-    const data = await res.json();
-    if (res.ok && data.database === 'connected') {
-      dot.className = 'db-dot online';
-      text.textContent = 'PostgreSQL Terhubung';
-    } else {
-      dot.className = 'db-dot offline';
-      text.textContent = 'PostgreSQL Belum Terhubung';
-    }
-  } catch {
-    dot.className = 'db-dot offline';
-    text.textContent = 'Server Offline';
-  }
-}
-
+// 1. Muat Daftar Dosen Publik untuk Form Registrasi Mandiri
 async function loadPublicDosenForRegistration() {
   try {
     const dosenList = await apiFetch('/api/public/dosen');
@@ -1284,7 +1265,7 @@ async function loadMahasiswaReports() {
 // =========================================================
 document.addEventListener('DOMContentLoaded', async () => {
   initIdleSessionWatchdog();
-  await Promise.all([checkDatabaseStatus(), loadPublicDosenForRegistration()]);
+  await loadPublicDosenForRegistration();
   initWysiwygToolbars();
   initSandbox();
 
