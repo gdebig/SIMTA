@@ -1252,15 +1252,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Tombol pengisian akun demo
-  document.querySelectorAll('.demo-login-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      showLoginTab();
-      document.getElementById('loginIdentifier').value = btn.getAttribute('data-id');
-      document.getElementById('loginPassword').value = 'simta123';
-    });
-  });
-
   // Login submit
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1276,6 +1267,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       state.user = data.user;
       state.activeViewRole = data.user.roles[0];
       localStorage.setItem('simta_token', data.token);
+      document.getElementById('loginPassword').value = '';
       enterAuthenticatedState();
     } catch (err) {
       showAlert(err.message, 'error');
@@ -1287,6 +1279,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     state.token = null;
     state.user = null;
     localStorage.removeItem('simta_token');
+    document.getElementById('loginIdentifier').value = '';
+    document.getElementById('loginPassword').value = '';
     document.getElementById('appSection').classList.add('hidden');
     document.getElementById('userChip').classList.add('hidden');
     document.getElementById('roleSwitcherContainer').classList.add('hidden');

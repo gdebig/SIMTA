@@ -6,9 +6,11 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
+    "start:prod": "NODE_ENV=production node src/server.js",
     "db:serve": "node src/db/pg-server.js",
     "db:init": "node src/db/init.js",
     "db:seed": "node src/db/seed.js",
+    "db:reset": "node src/db/reset-prod.js",
     "test": "node --test"
   },
   "dependencies": {

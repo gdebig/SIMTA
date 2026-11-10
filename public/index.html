@@ -24,7 +24,7 @@
         <span id="dbStatusText">Memeriksa PostgreSQL...</span>
       </div>
 
-      <button class="btn btn-yellow btn-sm" id="btnToggleSandbox" type="button">
+      <button class="btn btn-yellow btn-sm hidden" id="btnToggleSandbox" type="button">
         Uji RBAC &amp; Anti-XSS
       </button>
 
@@ -99,11 +99,11 @@
         <form id="loginForm">
           <div class="form-group">
             <label class="form-label" for="loginIdentifier">Email UI atau NIP / NPM</label>
-            <input type="text" id="loginIdentifier" class="form-control" placeholder="Contoh: budi.santoso@ui.ac.id atau 2106701234" required />
+            <input type="text" id="loginIdentifier" class="form-control" placeholder="Masukkan Email UI atau NIP / NPM Anda" autocomplete="username" required />
           </div>
           <div class="form-group">
             <label class="form-label" for="loginPassword">Kata Sandi</label>
-            <input type="password" id="loginPassword" class="form-control" placeholder="Masukkan kata sandi" value="simta123" required />
+            <input type="password" id="loginPassword" class="form-control" placeholder="Masukkan kata sandi" autocomplete="current-password" required />
           </div>
           <button type="submit" class="btn btn-primary" style="width:100%;">Masuk</button>
           <p style="font-size:0.8rem;color:var(--text-secondary);margin-top:0.75rem;text-align:center;">
@@ -189,36 +189,24 @@
 
       <div class="card">
         <div class="card-header">
-          <div class="card-title">Akun Seed PostgreSQL (Klik untuk Isi Otomatis)</div>
+          <div class="card-title">Panduan Portal SIMTA DTE UI</div>
         </div>
-        <p style="font-size:0.84rem;color:var(--text-secondary);margin-bottom:0.8rem;">
-          Klik salah satu akun di bawah ini untuk mengisi form login secara otomatis (Password: <code>simta123</code>):
+        <p style="font-size:0.86rem;color:var(--text-secondary);margin-bottom:0.85rem;line-height:1.6;">
+          Selamat datang di <strong>Sistem Informasi Manajemen Tugas Akhir (SIMTA)</strong> Departemen Teknik Elektro Universitas Indonesia untuk jenjang <strong>S1 (Skripsi)</strong>, <strong>S2 (Tesis)</strong>, dan <strong>S3 (Disertasi)</strong>.
         </p>
-        <div style="display:flex;flex-direction:column;gap:0.55rem;">
-          <button type="button" class="btn btn-outline btn-sm demo-login-btn" data-id="budi.santoso@ui.ac.id" style="justify-content:space-between;">
-            <span>Prof. Dr. Ir. Budi Santoso, M.T.</span>
-            <span><span class="badge badge-admin">ADMIN</span> <span class="badge badge-dosen">DOSEN</span></span>
-          </button>
-          <button type="button" class="btn btn-outline btn-sm demo-login-btn" data-id="admin.dte@ui.ac.id" style="justify-content:space-between;">
-            <span>Rina Kartika, S.Kom. (Sekretariat)</span>
-            <span class="badge badge-admin">ADMIN</span>
-          </button>
-          <button type="button" class="btn btn-outline btn-sm demo-login-btn" data-id="ardiansyah.w@ui.ac.id" style="justify-content:space-between;">
-            <span>Dr. Eng. Ardiansyah Wijaya, M.Sc.</span>
-            <span class="badge badge-dosen">DOSEN</span>
-          </button>
-          <button type="button" class="btn btn-outline btn-sm demo-login-btn" data-id="dimas.pratama@ui.ac.id" style="justify-content:space-between;">
-            <span>Dimas Pratama (2106701234 — Dalam Bimbingan)</span>
-            <span><span class="badge badge-mahasiswa">MAHASISWA</span> <span class="badge badge-degree">S1</span></span>
-          </button>
-          <button type="button" class="btn btn-outline btn-sm demo-login-btn" data-id="nadia.putri@ui.ac.id" style="justify-content:space-between;">
-            <span>Nadia Putri Maharani (2306198810 — Dalam Bimbingan)</span>
-            <span><span class="badge badge-mahasiswa">MAHASISWA</span> <span class="badge badge-degree">S2</span></span>
-          </button>
-          <button type="button" class="btn btn-outline btn-sm demo-login-btn" data-id="hendra.kusuma@ui.ac.id" style="justify-content:space-between;">
-            <span>Ir. Hendra Kusuma, M.T. (2206009912 — Sudah Lulus)</span>
-            <span><span class="badge badge-mahasiswa">MAHASISWA</span> <span class="badge badge-degree">S3</span></span>
-          </button>
+        <div style="display:flex;flex-direction:column;gap:0.65rem;font-size:0.83rem;color:var(--text-primary);">
+          <div style="padding:0.65rem 0.8rem;background:var(--surface-neutral);border-left:4px solid var(--navy-primary);border-radius:6px;">
+            <strong>1. Pendaftaran &amp; Aktivasi Akun</strong><br />
+            <span style="color:var(--text-secondary);">Mahasiswa dan Dosen Pembimbing dapat mendaftarkan akun melalui tab <em>Daftar Akun Baru</em>. Akun akan aktif setelah disetujui oleh Administrator.</span>
+          </div>
+          <div style="padding:0.65rem 0.8rem;background:var(--surface-neutral);border-left:4px solid var(--makara-yellow);border-radius:6px;">
+            <strong>2. Pelaporan Kemajuan &amp; Lampiran Berkas</strong><br />
+            <span style="color:var(--text-secondary);">Mahasiswa mengunggah laporan kemajuan berkala beserta dokumen pendukung (maksimal total 10 MB per laporan).</span>
+          </div>
+          <div style="padding:0.65rem 0.8rem;background:var(--surface-neutral);border-left:4px solid var(--navy-primary);border-radius:6px;">
+            <strong>3. Evaluasi &amp; Ekspor Rekapitulasi</strong><br />
+            <span style="color:var(--text-secondary);">Dosen Pembimbing memberikan evaluasi dan catatan tindak lanjut, serta dapat mengunduh rekapitulasi progress dalam format Excel (<code>.xlsx</code>).</span>
+          </div>
         </div>
       </div>
     </section>

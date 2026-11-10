@@ -14,6 +14,7 @@ const {
 const { hashPassword, verifyPassword, createToken, verifyToken } = require('../src/utils/auth');
 const app = require('../src/app');
 const { startPostgresServer } = require('../src/db/pg-server');
+const { seedDatabase, DEFAULT_ADMIN } = require('../src/db/seed');
 const { pool } = require('../src/db');
 
 const UPLOAD_DIR = path.resolve(__dirname, '../uploads');
@@ -166,7 +167,12 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
   let tempUserId;
 
   before(async () => {
-    pgHandle = await startPostgresServer({ keepPoolOpen: true });
+    try {
+      await pool.query('SELECT 1');
+    } catch {
+      pgHandle = await startPostgresServer();
+    }
+    await seedDatabase({ closePool: false, resetAll: true });
     httpServer = http.createServer(app);
     await new Promise((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
     const { port } = httpServer.address();
@@ -177,6 +183,8 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
     if (httpServer) {
       await new Promise((resolve) => httpServer.close(resolve));
     }
+    // Kembalikan database ke kondisi bersih Production (hanya menyisakan akun Admin)
+    await seedDatabase({ closePool: false, resetAll: true });
     await pool.end();
     if (pgHandle) {
       await pgHandle.server.stop();
@@ -184,18 +192,96 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
     }
   });
 
-  test('Login akun Dual-Role (ADMIN + DOSEN) & Mahasiswa berhasil', async () => {
+  test('Login akun Admin utama serta penyiapan akun uji Dual-Role & Mahasiswa berhasil', async () => {
+    // 1. Login menggunakan akun Admin utama yang disisakan di database
     const res = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        identifier: 'budi.santoso@ui.ac.id',
-        password: 'simta123'
+        identifier: DEFAULT_ADMIN.email,
+        password: DEFAULT_ADMIN.password
       })
     });
     assert.strictEqual(res.status, 200);
     const data = await res.json();
     adminToken = data.token;
+
+    // 2. Buat akun uji sementara melalui API Admin untuk kebutuhan pengujian E2E
+    const createDualRes = await fetch(`${baseUrl}/api/users`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        nip_or_npm: '197805122005011001',
+        name: 'Prof. Dr. Ir. Budi Santoso, M.T.',
+        email: 'budi.santoso@ui.ac.id',
+        password: 'simta123',
+        is_active: true,
+        roles: ['ADMIN', 'DOSEN']
+      })
+    });
+    assert.strictEqual(createDualRes.status, 201);
+    const dualDosen = await createDualRes.json();
+
+    await fetch(`${baseUrl}/api/users`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        nip_or_npm: '198607212012121004',
+        name: 'Dr. Ir. Wahyu Nugroho, S.T., M.T.',
+        email: 'wahyu.nugroho@ui.ac.id',
+        password: 'simta123',
+        is_active: false,
+        roles: ['DOSEN']
+      })
+    });
+
+    await fetch(`${baseUrl}/api/users`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        nip_or_npm: '2106701234',
+        name: 'Dimas Pratama',
+        email: 'dimas.pratama@ui.ac.id',
+        password: 'simta123',
+        is_active: true,
+        roles: ['MAHASISWA'],
+        degree: 'S1',
+        start_academic_year: '2025/2026',
+        supervision_status: 'DALAM_BIMBINGAN',
+        dosen_pembimbing_id: dualDosen.id,
+        thesis_title: '<p>Desain Sistem Kendali Inverter Tiga Fasa</p>'
+      })
+    });
+
+    await fetch(`${baseUrl}/api/users`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        nip_or_npm: '2206009912',
+        name: 'Ir. Hendra Kusuma, M.T.',
+        email: 'hendra.kusuma@ui.ac.id',
+        password: 'simta123',
+        is_active: true,
+        roles: ['MAHASISWA'],
+        degree: 'S3',
+        start_academic_year: '2023/2024',
+        supervision_status: 'LULUS',
+        dosen_pembimbing_id: dualDosen.id,
+        thesis_title: '<p>Arsitektur Komputasi Neuromorfik</p>'
+      })
+    });
 
     const mhsRes = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
@@ -247,7 +333,7 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
     });
     assert.strictEqual(checkUsers.status, 200);
     const usersList = await checkUsers.json();
-    assert.ok(usersList.length >= 6);
+    assert.ok(usersList.length >= 5);
   });
 
   test('Cybersecurity - Anti-Malicious Upload & Path Traversal (HTTP Multipart): Menolak upload script berbahaya dan akses di luar folder uploads', async () => {
@@ -330,7 +416,7 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
     assert.strictEqual(res.status, 200);
     const users = await res.json();
     assert.ok(Array.isArray(users));
-    assert.ok(users.length >= 6);
+    assert.ok(users.length >= 5);
 
     const mhs = users.find((u) => u.nip_or_npm === '2106701234');
     assert.ok(mhs);
