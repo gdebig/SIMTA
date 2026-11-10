@@ -1,6 +1,14 @@
 const path = require('path');
 const fs = require('fs');
-const sanitizeHtml = require('sanitize-html');
+
+const ALLOWED_HTML_TAGS = new Set([
+  'b', 'i', 'em', 'strong', 'a', 'p', 'ul', 'ol', 'li',
+  'h1', 'h2', 'h3', 'code', 'pre', 'blockquote', 'br'
+]);
+
+const DISCARD_CONTENT_TAGS = [
+  'script', 'style', 'iframe', 'object', 'embed', 'svg', 'math', 'applet', 'noscript', 'template'
+];
 
 const VALID_ROLES = ['ADMIN', 'DOSEN', 'MAHASISWA'];
 const VALID_DEGREES = ['S1', 'S2', 'S3'];
@@ -89,8 +97,55 @@ function validateUserRoles(roles) {
   return true;
 }
 
+function stripDangerousBlocks(html) {
+  let out = html.replace(/\0/g, '').replace(/<!--[\s\S]*?-->/g, '');
+  for (const tag of DISCARD_CONTENT_TAGS) {
+    const blockRegex = new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}\\s*>`, 'gi');
+    const selfClosingRegex = new RegExp(`<${tag}\\b[^>]*\\/?>`, 'gi');
+    out = out.replace(blockRegex, '').replace(selfClosingRegex, '');
+  }
+  return out;
+}
+
+function sanitizeAnchorAttributes(attrString) {
+  if (!attrString) return '';
+  const safeAttrs = [];
+
+  const attrRegex = /([a-zA-Z0-9_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
+  let match;
+  while ((match = attrRegex.exec(attrString)) !== null) {
+    const attrName = match[1].toLowerCase();
+    const rawVal = (match[2] ?? match[3] ?? match[4] ?? '').trim();
+
+    if (attrName === 'href') {
+      const normalized = rawVal.replace(/[\s\0-\x1f]+/g, '').toLowerCase();
+      const isAllowedScheme =
+        normalized.startsWith('http://') ||
+        normalized.startsWith('https://') ||
+        normalized.startsWith('mailto:') ||
+        (normalized.startsWith('/') && !normalized.startsWith('//'));
+      if (isAllowedScheme) {
+        const escapedVal = rawVal.replace(/"/g, '&quot;');
+        safeAttrs.push(`href="${escapedVal}"`);
+      }
+    } else if (attrName === 'target') {
+      if (['_blank', '_self'].includes(rawVal)) {
+        safeAttrs.push(`target="${rawVal}"`);
+      }
+    } else if (attrName === 'rel') {
+      const cleanRel = rawVal.replace(/[^a-zA-Z0-9\s_-]/g, '').trim();
+      if (cleanRel) {
+        safeAttrs.push(`rel="${cleanRel}"`);
+      }
+    }
+  }
+
+  return safeAttrs.length > 0 ? ` ${safeAttrs.join(' ')}` : '';
+}
+
 /**
- * Sanitasi konten HTML dari WYSIWYG Editor untuk mencegah XSS & Script Injection.
+ * Sanitasi konten HTML dari WYSIWYG Editor untuk mencegah XSS & Script Injection
+ * menggunakan parser Whitelist murni tanpa ketergantungan modul ESM eksternal.
  *
  * @param {string} dirtyHtml
  * @returns {string}
@@ -99,17 +154,26 @@ function sanitizeEditorContent(dirtyHtml) {
   if (typeof dirtyHtml !== 'string') {
     return '';
   }
-  return sanitizeHtml(dirtyHtml, {
-    allowedTags: [
-      'b', 'i', 'em', 'strong', 'a', 'p', 'ul', 'ol', 'li',
-      'h1', 'h2', 'h3', 'code', 'pre', 'blockquote'
-    ],
-    allowedAttributes: {
-      a: ['href', 'target', 'rel']
-    },
-    allowedSchemes: ['http', 'https', 'mailto'],
-    allowProtocolRelative: false,
-    disallowedTagsMode: 'discard'
+
+  const cleaned = stripDangerousBlocks(dirtyHtml);
+
+  return cleaned.replace(/<\/?([a-zA-Z0-9]+)\b([^>]*)>/g, (_full, rawTag, rawAttrs) => {
+    const isClosing = _full.startsWith('</');
+    const tag = rawTag.toLowerCase();
+
+    if (!ALLOWED_HTML_TAGS.has(tag)) {
+      return '';
+    }
+    if (tag === 'br') {
+      return '<br />';
+    }
+    if (isClosing) {
+      return `</${tag}>`;
+    }
+    if (tag === 'a') {
+      return `<a${sanitizeAnchorAttributes(rawAttrs)}>`;
+    }
+    return `<${tag}>`;
   });
 }
 
@@ -124,13 +188,9 @@ function sanitizePlainText(input) {
   if (typeof input !== 'string') {
     return '';
   }
-  const withoutNullBytes = input.replace(/\0/g, '');
-  const stripped = sanitizeHtml(withoutNullBytes, {
-    allowedTags: [],
-    allowedAttributes: {},
-    disallowedTagsMode: 'discard'
-  });
-  return stripped.trim();
+  const withoutBlocks = stripDangerousBlocks(input);
+  const withoutTags = withoutBlocks.replace(/<[^>]*>/g, '');
+  return withoutTags.trim();
 }
 
 /**
