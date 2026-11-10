@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SIMTA - Sistem Informasi Manajemen Tugas Akhir | DTE UI</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="top-accent-bar"></div>
+
+  <header class="navbar">
+    <div class="brand">
+      <div class="brand-crest">UI</div>
+      <div class="brand-text">
+        <h1>SIMTA — Departemen Teknik Elektro</h1>
+        <p>Sistem Informasi Manajemen Tugas Akhir (S1 • S2 • S3)</p>
+      </div>
+    </div>
+
+    <div class="nav-controls">
+      <div class="db-badge" id="dbStatusBadge" title="Status Koneksi PostgreSQL">
+        <span class="db-dot" id="dbStatusDot"></span>
+        <span id="dbStatusText">Memeriksa PostgreSQL...</span>
+      </div>
+
+      <button class="btn btn-yellow btn-sm" id="btnToggleSandbox" type="button">
+        Uji RBAC &amp; Anti-XSS
+      </button>
+
+      <div id="roleSwitcherContainer" class="role-switcher hidden"></div>
+
+      <div id="userChip" class="hidden" style="display:flex;align-items:center;gap:0.6rem;">
+        <span id="currentUserName" style="font-size:0.85rem;font-weight:600;"></span>
+        <button class="btn btn-outline btn-sm" id="btnLogout" style="border-color:#F8C300;color:#F8C300;">
+          Keluar
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <div id="globalAlert" class="alert hidden"></div>
+
+    <!-- PANEL SANDBOX VALIDATOR RBAC & ANTI-XSS (MENGGUNAKAN HTML EDITOR) -->
+    <section id="sandboxSection" class="card hidden">
+      <div class="card-header">
+        <div class="card-title">Simulator Aturan Bisnis RBAC, Sanitasi Anti-XSS &amp; Kuota 10MB</div>
+        <button class="btn btn-outline btn-sm" id="btnCloseSandbox" type="button">Tutup</button>
+      </div>
+      <div class="grid-2">
+        <div>
+          <h4 style="color:var(--navy-primary);margin-bottom:0.5rem;">1. Validator RBAC (Role-Based Access Control)</h4>
+          <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.6rem;">
+            Aturan: <strong>ADMIN + DOSEN</strong> diperbolehkan dalam 1 akun (Dual-role). Role <strong>MAHASISWA</strong> dilarang keras digabung dengan ADMIN atau DOSEN.
+          </p>
+          <div class="checkbox-group">
+            <label class="checkbox-label"><input type="checkbox" class="sb-role" value="ADMIN" checked /> ADMIN</label>
+            <label class="checkbox-label"><input type="checkbox" class="sb-role" value="DOSEN" checked /> DOSEN</label>
+            <label class="checkbox-label"><input type="checkbox" class="sb-role" value="MAHASISWA" /> MAHASISWA</label>
+          </div>
+          <button class="btn btn-primary btn-sm" id="btnTestRbac" type="button">Validasi Kombinasi Role</button>
+          <div id="rbacTestResult" style="margin-top:0.6rem;font-size:0.84rem;font-weight:600;"></div>
+        </div>
+
+        <div>
+          <h4 style="color:var(--navy-primary);margin-bottom:0.5rem;">2. Sanitasi HTML Editor (Anti-XSS)</h4>
+          <div class="wysiwyg-wrapper">
+            <div class="wysiwyg-toolbar" data-target="sbDirtyEditor">
+              <button type="button" class="wysiwyg-btn" data-cmd="bold"><b>B</b></button>
+              <button type="button" class="wysiwyg-btn" data-cmd="italic"><i>I</i></button>
+              <button type="button" class="wysiwyg-btn" data-cmd="formatBlock" data-val="H3">H3</button>
+              <button type="button" class="wysiwyg-btn" data-cmd="insertUnorderedList">• List</button>
+            </div>
+            <div id="sbDirtyEditor" class="wysiwyg-editor compact" contenteditable="true">
+              <h3>Laporan Bab 2</h3><p>Analisis <strong>Kendali Robust</strong> <a href="https://ee.ui.ac.id">DTE UI</a></p>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-sm" id="btnTestSanitize" type="button" style="margin-top:0.5rem;">
+            Sanitasi di Server Node.js
+          </button>
+          <pre id="sanitizeTestResult" style="margin-top:0.6rem;background:#0F172A;color:#F8FAFC;padding:0.6rem;border-radius:6px;font-size:0.78rem;overflow-x:auto;"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- HALAMAN LOGIN & PENDAFTARAN AKUN MANDIRI -->
+    <section id="loginSection" class="grid-2" style="align-items:start;">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title" id="authCardTitle">Masuk ke Portal SIMTA</div>
+          <div style="display:flex;gap:0.4rem;">
+            <button type="button" class="btn btn-primary btn-sm" id="btnShowLoginTab">Masuk</button>
+            <button type="button" class="btn btn-outline btn-sm" id="btnShowRegisterTab">Daftar Akun Baru</button>
+          </div>
+        </div>
+
+        <!-- FORM LOGIN -->
+        <form id="loginForm">
+          <div class="form-group">
+            <label class="form-label" for="loginIdentifier">Email UI atau NIP / NPM</label>
+            <input type="text" id="loginIdentifier" class="form-control" placeholder="Contoh: budi.santoso@ui.ac.id atau 2106701234" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="loginPassword">Kata Sandi</label>
+            <input type="password" id="loginPassword" class="form-control" placeholder="Masukkan kata sandi" value="simta123" required />
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%;">Masuk</button>
+          <p style="font-size:0.8rem;color:var(--text-secondary);margin-top:0.75rem;text-align:center;">
+            Belum memiliki akun? <button type="button" class="action-link" id="linkToRegister">Daftarkan akun Anda di sini</button>
+          </p>
+        </form>
+
+        <!-- FORM PENDAFTARAN AKUN MANDIRI (PERLU APPROVAL ADMIN) -->
+        <form id="selfRegisterForm" class="hidden">
+          <div class="alert alert-info" style="font-size:0.8rem;margin-bottom:0.9rem;">
+            Akun yang didaftarkan melalui halaman ini memerlukan <strong>persetujuan (approval) dari Admin</strong> sebelum dapat aktif dan digunakan login.
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Daftar Sebagai</label>
+            <select id="regRole" class="form-control">
+              <option value="MAHASISWA">MAHASISWA (S1 / S2 / S3)</option>
+              <option value="DOSEN">DOSEN PEMBIMBING</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">NPM / NIP</label>
+            <input type="text" id="regNipNpm" class="form-control" placeholder="Masukkan NPM atau NIP Anda" required />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Nama Lengkap &amp; Gelar</label>
+            <input type="text" id="regName" class="form-control" placeholder="Nama lengkap" required />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Email UI</label>
+            <input type="email" id="regEmail" class="form-control" placeholder="nama@ui.ac.id" required />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Kata Sandi</label>
+            <input type="password" id="regPassword" class="form-control" placeholder="Minimal 6 karakter" required />
+          </div>
+
+          <div id="regMahasiswaFields">
+            <div class="grid-2" style="gap:0.75rem;grid-template-columns:1fr 1fr;">
+              <div class="form-group">
+                <label class="form-label">Jenjang Studi</label>
+                <select id="regDegree" class="form-control">
+                  <option value="S1">S1 (Sarjana)</option>
+                  <option value="S2">S2 (Magister)</option>
+                  <option value="S3">S3 (Doktor)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Tahun Ajaran Mulai</label>
+                <input type="text" id="regAcademicYear" class="form-control" value="2025/2026" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Usulan Dosen Pembimbing (Opsional)</label>
+              <select id="regDosenPembimbing" class="form-control">
+                <option value="">-- Pilih Dosen Pembimbing --</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Rencana Judul Tugas Akhir / Tesis / Disertasi (HTML Editor)</label>
+              <div class="wysiwyg-wrapper">
+                <div class="wysiwyg-toolbar" data-target="regThesisEditor">
+                  <button type="button" class="wysiwyg-btn" data-cmd="bold"><b>B</b></button>
+                  <button type="button" class="wysiwyg-btn" data-cmd="italic"><i>I</i></button>
+                  <button type="button" class="wysiwyg-btn" data-cmd="removeFormat">Clear</button>
+                </div>
+                <div id="regThesisEditor" class="wysiwyg-editor compact" contenteditable="true"></div>
+              </div>
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-yellow" style="width:100%;">
+            Kirim Pendaftaran Akun (Menunggu Approval Admin)
+          </button>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Akun Seed PostgreSQL (Klik untuk Isi Otomatis)</div>
+        </div>
+        <p style="font-size:0.84rem;color:var(--text-secondary);margin-bottom:0.8rem;">
+          Klik salah satu akun di bawah ini untuk mengisi form login secara otomatis (Password: <code>simta123</code>):
+        </p>
+        <div style="display:flex;flex-direction:column;gap:0.55rem;">
+          <button type="button" class="btn btn-outline btn-sm demo-login-btn" data-id="budi.santoso@ui.ac.id" style="justify-content:space-between;">
+            <span>Prof. Dr. Ir. Budi Santoso, M.T.</span>
+            <span><span class="badge badge-admin">ADMIN</span> <span class="badge badge-dosen">DOSEN</span></span>
+          </button>
+          <button type="button" class="btn btn-outline btn-sm demo-login-btn" data-id="admin.dte@ui.ac.id" style="justify-content:space-between;">
+            <span>Rina Kartika, S.Kom. (Sekretariat)</span>
+            <span class="badge badge-admin">ADMIN</span>
+          </button>
+          <button type="button" class="btn btn-outline btn-sm demo-login-btn" data-id="ardiansyah.w@ui.ac.id" style="justify-content:space-between;">
+            <span>Dr. Eng. Ardiansyah Wijaya, M.Sc.</span>
+            <span class="badge badge-dosen">DOSEN</span>
+          </button>
+          <button type="button" class="btn btn-outline btn-sm demo-login-btn" data-id="dimas.pratama@ui.ac.id" style="justify-content:space-between;">
+            <span>Dimas Pratama (2106701234 — Dalam Bimbingan)</span>
+            <span><span class="badge badge-mahasiswa">MAHASISWA</span> <span class="badge badge-degree">S1</span></span>
+          </button>
+          <button type="button" class="btn btn-outline btn-sm demo-login-btn" data-id="nadia.putri@ui.ac.id" style="justify-content:space-between;">
+            <span>Nadia Putri Maharani (2306198810 — Dalam Bimbingan)</span>
+            <span><span class="badge badge-mahasiswa">MAHASISWA</span> <span class="badge badge-degree">S2</span></span>
+          </button>
+          <button type="button" class="btn btn-outline btn-sm demo-login-btn" data-id="hendra.kusuma@ui.ac.id" style="justify-content:space-between;">
+            <span>Ir. Hendra Kusuma, M.T. (2206009912 — Sudah Lulus)</span>
+            <span><span class="badge badge-mahasiswa">MAHASISWA</span> <span class="badge badge-degree">S3</span></span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- DASHBOARD UTAMA SETELAH LOGIN -->
+    <section id="appSection" class="hidden">
+      <!-- Ringkasan Statistik -->
+      <div class="grid-3" style="margin-bottom:1.5rem;" id="statsContainer"></div>
+
+      <!-- ========================================== -->
+      <!-- VIEW 1: PANEL ADMINISTRATOR (MODE ADMIN)   -->
+      <!-- ========================================== -->
+      <div id="adminView" class="hidden">
+        <!-- Panel Detail Laporan & Komentar Mahasiswa (Muncul saat Admin mengklik nama mahasiswa) -->
+        <div id="adminStudentReportsCard" class="card highlight-panel hidden">
+          <div class="card-header">
+            <div class="card-title" id="adminStudentModalTitle">Proses Laporan &amp; Komentar Mahasiswa</div>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+              <button type="button" class="btn btn-yellow btn-sm" id="btnExportAdminStudentExcel">
+                📥 Unduh Progress (Excel)
+              </button>
+              <button type="button" class="btn btn-outline btn-sm" id="btnCloseAdminStudentReports">
+                Tutup Panel Laporan
+              </button>
+            </div>
+          </div>
+          <div id="adminStudentProfileInfo" style="margin-bottom:1rem;"></div>
+          <div id="adminStudentReportsList"></div>
+        </div>
+
+        <div class="grid-admin">
+          <!-- Form Tambah / Ubah Akun Pengguna -->
+          <div class="card" id="userFormCard">
+            <div class="card-header">
+              <div class="card-title" id="userFormTitle">Registrasi Pengguna Baru</div>
+              <button type="button" class="btn btn-outline btn-sm hidden" id="btnCancelEditUser">
+                Batal Ubah
+              </button>
+            </div>
+            <form id="userForm">
+              <input type="hidden" id="editUserId" value="" />
+
+              <div class="form-group">
+                <label class="form-label">NIP / NPM</label>
+                <input type="text" id="newNipNpm" class="form-control" placeholder="NIP Dosen/Staf atau NPM Mahasiswa" required />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Nama Lengkap &amp; Gelar</label>
+                <input type="text" id="newName" class="form-control" placeholder="Nama lengkap" required />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Email</label>
+                <input type="email" id="newEmail" class="form-control" placeholder="nama@ui.ac.id" required />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" id="passwordFieldLabel">Password Awal</label>
+                <input type="password" id="newPassword" class="form-control" value="simta123" />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Penetapan Role (Aturan: MAHASISWA terisolasi dari ADMIN/DOSEN)</label>
+                <div class="checkbox-group">
+                  <label class="checkbox-label"><input type="checkbox" name="newUserRole" value="ADMIN" /> ADMIN</label>
+                  <label class="checkbox-label"><input type="checkbox" name="newUserRole" value="DOSEN" /> DOSEN</label>
+                  <label class="checkbox-label"><input type="checkbox" name="newUserRole" value="MAHASISWA" checked /> MAHASISWA</label>
+                </div>
+                <div id="liveRoleHint" style="font-size:0.78rem;margin-top:0.2rem;"></div>
+              </div>
+
+              <!-- Field Status Akun untuk Dosen / Admin -->
+              <div class="form-group" id="staffStatusField">
+                <label class="form-label">Status Akun Dosen / Admin</label>
+                <select id="newIsActive" class="form-control">
+                  <option value="true">Aktif</option>
+                  <option value="false">Tidak Aktif</option>
+                </select>
+              </div>
+
+              <!-- Field Tambahan Khusus Mahasiswa -->
+              <div id="mahasiswaExtraFields">
+                <div class="grid-2" style="gap:0.75rem;grid-template-columns:1fr 1fr;">
+                  <div class="form-group">
+                    <label class="form-label">Jenjang Studi</label>
+                    <select id="newDegree" class="form-control">
+                      <option value="S1">S1 (Sarjana)</option>
+                      <option value="S2">S2 (Magister)</option>
+                      <option value="S3">S3 (Doktor)</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Tahun Ajaran Mulai</label>
+                    <input type="text" id="newAcademicYear" class="form-control" value="2025/2026" />
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label">Status Bimbingan Mahasiswa</label>
+                  <select id="newSupervisionStatus" class="form-control">
+                    <option value="DALAM_BIMBINGAN">Sedang Dalam Bimbingan</option>
+                    <option value="LULUS">Sudah Lulus</option>
+                    <option value="TIDAK_SELESAI">Tidak Selesai</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label">Dosen Pembimbing</label>
+                  <select id="newDosenPembimbing" class="form-control">
+                    <option value="">-- Pilih Dosen Pembimbing --</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label">Judul Tugas Akhir / Tesis / Disertasi (HTML Editor)</label>
+                  <div class="wysiwyg-wrapper">
+                    <div class="wysiwyg-toolbar" data-target="newThesisEditor">
+                      <button type="button" class="wysiwyg-btn" data-cmd="bold"><b>B</b></button>
+                      <button type="button" class="wysiwyg-btn" data-cmd="italic"><i>I</i></button>
+                      <button type="button" class="wysiwyg-btn" data-cmd="removeFormat">Clear</button>
+                    </div>
+                    <div id="newThesisEditor" class="wysiwyg-editor compact" contenteditable="true"></div>
+                  </div>
+                </div>
+              </div>
+
+              <button type="submit" class="btn btn-primary" id="btnSubmitUserForm" style="width:100%;">
+                Simpan Pengguna Baru
+              </button>
+            </form>
+          </div>
+
+          <!-- Daftar Seluruh User Lengkap dengan Jenis Role, Tahun Ajaran, Status & Link Setujui/Ubah/Hapus -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Daftar Seluruh Pengguna &amp; Persetujuan Pendaftaran</div>
+                <p style="font-size:0.78rem;color:var(--text-secondary);margin-top:0.15rem;">
+                  Klik <strong>nama mahasiswa</strong> untuk melihat proses laporan &amp; komentar. Klik <strong>Setujui (Approve)</strong> untuk mengaktifkan pendaftar baru.
+                </p>
+              </div>
+              <div style="display:flex;gap:0.45rem;flex-wrap:wrap;align-items:center;">
+                <input
+                  type="search"
+                  id="adminSearchUser"
+                  class="form-control search-input-box"
+                  placeholder="🔍 Cari nama pengguna / NIP / NPM..."
+                />
+                <select id="filterApprovalStatus" class="form-control" style="width:auto;padding:0.35rem 0.65rem;font-size:0.82rem;">
+                  <option value="">Semua Status Approval</option>
+                  <option value="PENDING">⏳ Menunggu Approval Admin</option>
+                  <option value="APPROVED">✓ Sudah Disetujui</option>
+                </select>
+                <select id="filterUserRole" class="form-control" style="width:auto;padding:0.35rem 0.65rem;font-size:0.82rem;">
+                  <option value="">Semua Role</option>
+                  <option value="ADMIN">ADMIN</option>
+                  <option value="DOSEN">DOSEN</option>
+                  <option value="MAHASISWA">MAHASISWA</option>
+                </select>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table>
+                <thead>
+                  <tr>
+                    <th>NIP / NPM &amp; Nama Akun</th>
+                    <th>Jenis Role</th>
+                    <th>Tahun Ajaran</th>
+                    <th>Status &amp; Informasi Bimbingan</th>
+                    <th>Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="usersTableBody"></tbody>
+              </table>
+            </div>
+            <div id="adminUsersPagination" class="pagination-bar"></div>
+          </div>
+        </div>
+
+        <!-- TABEL LOG AKTIVITAS SELURUH PENGGUNA (MODE ADMIN) -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Log Aktivitas Seluruh Pengguna Sistem (Audit Trail)</div>
+              <p style="font-size:0.78rem;color:var(--text-secondary);margin-top:0.15rem;">
+                Mencatat seluruh aktivitas pengguna: pendaftaran mandiri, login, persetujuan akun, pengunggahan laporan, pemberian komentar dosen, serta perubahan data oleh Admin.
+              </p>
+            </div>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+              <select id="adminLogTypeFilter" class="form-control" style="width:auto;padding:0.35rem 0.65rem;font-size:0.82rem;">
+                <option value="">Semua Jenis Aktivitas</option>
+                <option value="LOGIN">LOGIN (Masuk Sistem)</option>
+                <option value="REGISTER">REGISTER (Pendaftaran Akun)</option>
+                <option value="APPROVE_USER">APPROVE_USER (Persetujuan Akun)</option>
+                <option value="CREATE_REPORT">CREATE_REPORT (Laporan Mahasiswa)</option>
+                <option value="CREATE_FEEDBACK">CREATE_FEEDBACK (Komentar Dosen)</option>
+                <option value="UPDATE_USER">UPDATE_USER (Ubah Data User)</option>
+                <option value="UPDATE_MAHASISWA">UPDATE_MAHASISWA (Ubah Profil/Status TA)</option>
+                <option value="CREATE_USER">CREATE_USER (Tambah User)</option>
+                <option value="DELETE_USER">DELETE_USER (Hapus User)</option>
+                <option value="EXPORT_EXCEL">EXPORT_EXCEL (Unduh Excel)</option>
+              </select>
+              <button type="button" class="btn btn-outline btn-sm" id="btnRefreshAdminLogs">
+                Muat Ulang Log
+              </button>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Waktu</th>
+                  <th>Pengguna (NIP/NPM)</th>
+                  <th>Role</th>
+                  <th>Jenis Aktivitas</th>
+                  <th>Rincian Aktivitas</th>
+                </tr>
+              </thead>
+              <tbody id="adminLogsTableBody"></tbody>
+            </table>
+          </div>
+          <div id="adminLogsPagination" class="pagination-bar"></div>
+        </div>
+      </div>
+
+      <!-- ========================================== -->
+      <!-- VIEW 2: PANEL DOSEN PEMBIMBING (MODE DOSEN)-->
+      <!-- ========================================== -->
+      <div id="dosenView" class="hidden">
+        <!-- Daftar Mahasiswa yang Dibimbing -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Daftar Mahasiswa yang Dibimbing</div>
+              <p style="font-size:0.78rem;color:var(--text-secondary);margin-top:0.15rem;">
+                Menampilkan tahun ajaran dimulai bimbingan serta status kelulusan/bimbingan mahasiswa. Klik nama mahasiswa untuk memfilter laporan di bawah.
+              </p>
+            </div>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+              <input
+                type="search"
+                id="dosenSearchStudent"
+                class="form-control search-input-box"
+                placeholder="🔍 Cari nama mahasiswa / NPM..."
+              />
+              <select id="dosenFilterScope" class="form-control" style="width:auto;padding:0.35rem 0.65rem;font-size:0.82rem;">
+                <option value="mine">Mahasiswa Bimbingan Saya</option>
+                <option value="all">Seluruh Mahasiswa Prodi</option>
+              </select>
+              <select id="dosenFilterSupervisionStatus" class="form-control" style="width:auto;padding:0.35rem 0.65rem;font-size:0.82rem;">
+                <option value="">Semua Status Bimbingan</option>
+                <option value="DALAM_BIMBINGAN">Sedang Dalam Bimbingan</option>
+                <option value="LULUS">Sudah Lulus</option>
+                <option value="TIDAK_SELESAI">Tidak Selesai</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>NPM &amp; Nama Mahasiswa</th>
+                  <th>Jenjang</th>
+                  <th>Tahun Ajaran Dimulai</th>
+                  <th>Judul Tugas Akhir</th>
+                  <th>Status Bimbingan</th>
+                  <th>Laporan</th>
+                </tr>
+              </thead>
+              <tbody id="dosenStudentsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Daftar Laporan Kemajuan & Komentar -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title" id="dosenReportsHeaderTitle">Daftar Laporan Kemajuan &amp; Komentar Bimbingan</div>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+              <button type="button" class="btn btn-yellow btn-sm" id="btnDosenExportExcel">
+                📥 Unduh Progress (Excel)
+              </button>
+              <button type="button" class="btn btn-outline btn-sm hidden" id="btnResetSelectedStudent">
+                Tampilkan Semua Mahasiswa
+              </button>
+              <select id="dosenFilterDegree" class="form-control" style="width:auto;padding:0.35rem 0.6rem;font-size:0.82rem;">
+                <option value="">Semua Jenjang (S1/S2/S3)</option>
+                <option value="S1">S1</option>
+                <option value="S2">S2</option>
+                <option value="S3">S3</option>
+              </select>
+              <select id="dosenFilterStatus" class="form-control" style="width:auto;padding:0.35rem 0.6rem;font-size:0.82rem;">
+                <option value="">Semua Status Laporan</option>
+                <option value="SUBMITTED">SUBMITTED</option>
+                <option value="REVIEWED">REVIEWED</option>
+                <option value="REVISION_NEEDED">REVISION_NEEDED</option>
+                <option value="APPROVED">APPROVED</option>
+              </select>
+            </div>
+          </div>
+          <div id="dosenReportsList"></div>
+        </div>
+
+        <!-- TABEL LOG AKTIVITAS DOSEN & MAHASISWA BIMBINGAN (MODE DOSEN) -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Log Aktivitas Saya &amp; Mahasiswa Bimbingan</div>
+              <p style="font-size:0.78rem;color:var(--text-secondary);margin-top:0.15rem;">
+                Menampilkan riwayat aktivitas yang dilakukan oleh akun Anda sendiri maupun oleh akun mahasiswa yang berada di bawah bimbingan Anda.
+              </p>
+            </div>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+              <select id="dosenLogTypeFilter" class="form-control" style="width:auto;padding:0.35rem 0.65rem;font-size:0.82rem;">
+                <option value="">Semua Jenis Aktivitas</option>
+                <option value="LOGIN">LOGIN (Masuk Sistem)</option>
+                <option value="CREATE_REPORT">CREATE_REPORT (Laporan Mahasiswa)</option>
+                <option value="CREATE_FEEDBACK">CREATE_FEEDBACK (Komentar Dosen)</option>
+                <option value="UPDATE_MAHASISWA">UPDATE_MAHASISWA (Ubah Profil/Status TA)</option>
+                <option value="EXPORT_EXCEL">EXPORT_EXCEL (Unduh Excel)</option>
+              </select>
+              <button type="button" class="btn btn-outline btn-sm" id="btnRefreshDosenLogs">
+                Muat Ulang Log
+              </button>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Waktu</th>
+                  <th>Pengguna (NIP/NPM)</th>
+                  <th>Role</th>
+                  <th>Jenis Aktivitas</th>
+                  <th>Rincian Aktivitas</th>
+                </tr>
+              </thead>
+              <tbody id="dosenLogsTableBody"></tbody>
+            </table>
+          </div>
+          <div id="dosenLogsPagination" class="pagination-bar"></div>
+        </div>
+      </div>
+
+      <!-- ========================================== -->
+      <!-- VIEW 3: PANEL MAHASISWA (MODE MAHASISWA)   -->
+      <!-- ========================================== -->
+      <div id="mahasiswaView" class="hidden">
+        <div class="card" id="mahasiswaProfileCard"></div>
+
+        <div class="grid-2">
+          <!-- Form Kirim Laporan Kemajuan dengan HTML Editor & Lampiran 10MB -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Unggah Laporan Kemajuan Baru</div>
+            </div>
+            <form id="createReportForm">
+              <div class="grid-2" style="gap:0.75rem;grid-template-columns:1fr 1fr;">
+                <div class="form-group">
+                  <label class="form-label">Tahun Ajaran</label>
+                  <input type="text" id="reportAcademicYear" class="form-control" value="2025/2026" required />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Status Pengajuan</label>
+                  <select id="reportStatusInput" class="form-control">
+                    <option value="SUBMITTED">SUBMITTED (Ajukan ke Dosen)</option>
+                    <option value="DRAFT">DRAFT (Simpan Draf)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Judul Laporan Progres</label>
+                <input type="text" id="reportTitle" class="form-control" placeholder="Contoh: Laporan Kemajuan Bab 3 - Implementasi Sistem" required />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Isi Laporan (HTML Editor — Tersanitasi Anti-XSS)</label>
+                <div class="wysiwyg-wrapper">
+                  <div class="wysiwyg-toolbar" data-target="reportEditor">
+                    <button type="button" class="wysiwyg-btn" data-cmd="bold"><b>B</b></button>
+                    <button type="button" class="wysiwyg-btn" data-cmd="italic"><i>I</i></button>
+                    <button type="button" class="wysiwyg-btn" data-cmd="formatBlock" data-val="H2">H2</button>
+                    <button type="button" class="wysiwyg-btn" data-cmd="formatBlock" data-val="H3">H3</button>
+                    <button type="button" class="wysiwyg-btn" data-cmd="insertUnorderedList">• List</button>
+                    <button type="button" class="wysiwyg-btn" data-cmd="insertOrderedList">1. List</button>
+                    <button type="button" class="wysiwyg-btn" data-cmd="formatBlock" data-val="BLOCKQUOTE">❝ Quote</button>
+                  </div>
+                  <div id="reportEditor" class="wysiwyg-editor" contenteditable="true">
+                    <h3>Ringkasan Kemajuan</h3>
+                    <p>Tuliskan rincian pencapaian riset, hasil pengujian, serta kendala teknis di sini...</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Lampiran Berkas Pendukung (Maks. 10 MB • Format: PDF, Word, Excel, PPT, ZIP, Gambar)</label>
+                <input type="file" id="reportFiles" class="form-control" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.png,.jpg,.jpeg" multiple />
+                <div class="quota-bar-bg">
+                  <div id="fileQuotaBar" class="quota-bar-fill"></div>
+                </div>
+                <div id="fileQuotaText" style="font-size:0.78rem;color:var(--text-secondary);margin-top:0.3rem;">
+                  Total ukuran berkas: 0.00 MB / 10.00 MB
+                </div>
+              </div>
+
+              <button type="submit" class="btn btn-primary" id="btnSubmitReport">Kirim Laporan Kemajuan</button>
+            </form>
+          </div>
+
+          <!-- Daftar Laporan & Komentar dari Masing-Masing Laporan -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Daftar Laporan Kemajuan &amp; Komentar Dosen</div>
+              <button type="button" class="btn btn-yellow btn-sm" id="btnMahasiswaExportExcel">
+                📥 Unduh Progress (Excel)
+              </button>
+            </div>
+            <div id="mahasiswaReportsList"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    Sistem Informasi Manajemen Tugas Akhir (SIMTA) • Departemen Teknik Elektro Fakultas Teknik Universitas Indonesia
+  </footer>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
