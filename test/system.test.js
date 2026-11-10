@@ -11,7 +11,15 @@ const {
   resolveSafeUploadPath,
   validateSafeUploadFiles
 } = require('../src/utils/validators');
-const { hashPassword, verifyPassword, createToken, verifyToken } = require('../src/utils/auth');
+const {
+  SESSION_IDLE_TIMEOUT_MS,
+  hashPassword,
+  verifyPassword,
+  createToken,
+  verifyToken,
+  revokeToken,
+  simulateSessionInactivity
+} = require('../src/utils/auth');
 const app = require('../src/app');
 const { startPostgresServer } = require('../src/db/pg-server');
 const { seedDatabase, DEFAULT_ADMIN } = require('../src/db/seed');
@@ -156,6 +164,44 @@ describe('Sistem Informasi Tugas Akhir - Core Rule Tests', () => {
     const decoded = verifyToken(token);
     assert.deepStrictEqual(decoded.roles, ['ADMIN', 'DOSEN']);
   });
+
+  test('Keamanan Sesi (Unit): Batas waktu tidak aktif tepat 30 menit & blokir Session Injection / Tampering', () => {
+    // 1. Pastikan konstanta timeout sesi adalah 30 menit (1.800.000 ms)
+    assert.strictEqual(SESSION_IDLE_TIMEOUT_MS, 30 * 60 * 1000);
+
+    // 2. Sesi yang tidak aktif lebih dari 30 menit otomatis kedaluwarsa dan dihapus
+    const token = createToken(
+      { id: 'user-mhs-1', roles: ['MAHASISWA'] },
+      { userAgent: 'Mozilla/5.0 (X11; Linux x86_64)' }
+    );
+    assert.ok(verifyToken(token, { userAgent: 'Mozilla/5.0 (X11; Linux x86_64)' }));
+
+    // Simulasikan pengguna tidak aktif selama 30 menit + 1 detik
+    simulateSessionInactivity(token, 30 * 60 * 1000 + 1000);
+    assert.strictEqual(verifyToken(token, { userAgent: 'Mozilla/5.0 (X11; Linux x86_64)' }), null);
+
+    // 3. Blokir Cross-Client Session Hijacking / Injection (User-Agent berbeda)
+    const boundToken = createToken(
+      { id: 'user-dosen-1', roles: ['DOSEN'] },
+      { userAgent: 'Browser-Asli-Dosen/1.0' }
+    );
+    assert.strictEqual(
+      verifyToken(boundToken, { userAgent: 'Attacker-Injector-Client/9.9' }),
+      null
+    );
+
+    // 4. Blokir Token Payload Tampering (eskalasi paksa role MAHASISWA -> ADMIN)
+    const mhsToken = createToken({ id: 'user-mhs-2', roles: ['MAHASISWA'] });
+    const [, validSig] = mhsToken.split('.');
+    const forgedPayload = Buffer.from(
+      JSON.stringify({ id: 'user-mhs-2', roles: ['ADMIN'], jti: 'fake-jti' })
+    ).toString('base64url');
+    assert.strictEqual(verifyToken(`${forgedPayload}.${validSig}`), null);
+
+    // 5. Blokir injeksi karakter kontrol / CRLF / Null-Byte pada token
+    assert.strictEqual(verifyToken(`${mhsToken}\r\nSet-Cookie: hacked=1`), null);
+    assert.strictEqual(verifyToken(`${mhsToken}\0`), null);
+  });
 });
 
 describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecurity Tests', () => {
@@ -167,11 +213,7 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
   let tempUserId;
 
   before(async () => {
-    try {
-      await pool.query('SELECT 1');
-    } catch {
-      pgHandle = await startPostgresServer();
-    }
+    pgHandle = await startPostgresServer({ port: 0, inMemory: true });
     await seedDatabase({ closePool: false, resetAll: true });
     httpServer = http.createServer(app);
     await new Promise((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
@@ -575,5 +617,136 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
       method: 'DELETE',
       headers: { Authorization: `Bearer ${adminToken}` }
     });
+  });
+
+  test('Cybersecurity - Session Idle Timeout 30 Menit (E2E): Sesi login Admin, Dosen, dan Mahasiswa otomatis habis jika tidak aktif > 30 menit dan menolak submit form', async () => {
+    // 1. Login untuk ketiga mode (Admin, Dosen, dan Mahasiswa)
+    const loginAdmin = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': 'SIMTA-Test-Browser/1.0' },
+      body: JSON.stringify({ identifier: DEFAULT_ADMIN.email, password: DEFAULT_ADMIN.password })
+    });
+    assert.strictEqual(loginAdmin.status, 200);
+    const adminSession = await loginAdmin.json();
+    assert.strictEqual(adminSession.sessionTimeoutMs, 30 * 60 * 1000);
+
+    const loginDosen = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': 'SIMTA-Test-Browser/1.0' },
+      body: JSON.stringify({ identifier: 'budi.santoso@ui.ac.id', password: 'simta123' })
+    });
+    assert.strictEqual(loginDosen.status, 200);
+    const dosenSession = await loginDosen.json();
+
+    const loginMhs = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': 'SIMTA-Test-Browser/1.0' },
+      body: JSON.stringify({ identifier: 'dimas.pratama@ui.ac.id', password: 'simta123' })
+    });
+    assert.strictEqual(loginMhs.status, 200);
+    const mhsSession = await loginMhs.json();
+
+    // 2. Simulasikan ketiga sesi tidak aktif selama 31 menit (> 30 menit)
+    const thirtyOneMinutesMs = 31 * 60 * 1000;
+    assert.strictEqual(simulateSessionInactivity(adminSession.token, thirtyOneMinutesMs), true);
+    assert.strictEqual(simulateSessionInactivity(dosenSession.token, thirtyOneMinutesMs), true);
+    assert.strictEqual(simulateSessionInactivity(mhsSession.token, thirtyOneMinutesMs), true);
+
+    // 3. Pastikan akses dashboard maupun pengisian form pada ketiga mode langsung ditolak (401 SESSION_EXPIRED)
+    const expiredAdminRes = await fetch(`${baseUrl}/api/users`, {
+      headers: {
+        Authorization: `Bearer ${adminSession.token}`,
+        'User-Agent': 'SIMTA-Test-Browser/1.0'
+      }
+    });
+    assert.strictEqual(expiredAdminRes.status, 401);
+    const expiredAdminBody = await expiredAdminRes.json();
+    assert.strictEqual(expiredAdminBody.code, 'SESSION_EXPIRED');
+
+    const expiredDosenRes = await fetch(`${baseUrl}/api/reports`, {
+      headers: {
+        Authorization: `Bearer ${dosenSession.token}`,
+        'User-Agent': 'SIMTA-Test-Browser/1.0'
+      }
+    });
+    assert.strictEqual(expiredDosenRes.status, 401);
+
+    const expiredMhsForm = new FormData();
+    expiredMhsForm.append('academic_year_id', '2025/2026');
+    expiredMhsForm.append('title', 'Laporan Setelah Sesi Habis');
+    expiredMhsForm.append('report_html', '<p>Isi laporan</p>');
+    const expiredMhsRes = await fetch(`${baseUrl}/api/reports`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${mhsSession.token}`,
+        'User-Agent': 'SIMTA-Test-Browser/1.0'
+      },
+      body: expiredMhsForm
+    });
+    assert.strictEqual(expiredMhsRes.status, 401);
+  });
+
+  test('Cybersecurity - Anti-Session Injection & Session Fixation (E2E): Menolak injeksi sesi pada login, header sesi palsu, pembajakan sesi lintas client, dan replay token pasca-logout', async () => {
+    // 1. Serangan Session Fixation / Session Injection saat proses Login (menyisipkan sessionId / jti / roles di body)
+    const fixationLoginRes = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        identifier: 'dimas.pratama@ui.ac.id',
+        password: 'simta123',
+        sessionId: 'attacker-fixed-session-id-999',
+        roles: ['ADMIN']
+      })
+    });
+    assert.strictEqual(fixationLoginRes.status, 400);
+    const fixationErr = await fixationLoginRes.json();
+    assert.match(fixationErr.error, /Session Injection|Session Fixation/);
+
+    // 2. Serangan HTTP Header Session Injection (X-Session-Id / X-Authenticated-User / X-Forwarded-User)
+    const headerInjRes = await fetch(`${baseUrl}/api/users`, {
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        'X-Session-Id': 'injected-session-12345'
+      }
+    });
+    assert.strictEqual(headerInjRes.status, 400);
+
+    // 3. Serangan Cross-Client Session Hijacking / Injection (menggunakan token curian dari User-Agent berbeda)
+    const victimLogin = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) VictimBrowser/120.0'
+      },
+      body: JSON.stringify({ identifier: 'dimas.pratama@ui.ac.id', password: 'simta123' })
+    });
+    assert.strictEqual(victimLogin.status, 200);
+    const { token: victimToken } = await victimLogin.json();
+
+    const hijackedRes = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: {
+        Authorization: `Bearer ${victimToken}`,
+        'User-Agent': 'curl/8.5.0 AttackerSessionInjector'
+      }
+    });
+    assert.strictEqual(hijackedRes.status, 401);
+
+    // 4. Serangan Session Replay setelah Logout (menyuntikkan kembali token yang sudah logout)
+    const logoutRes = await fetch(`${baseUrl}/api/auth/logout`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${victimToken}`,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) VictimBrowser/120.0'
+      }
+    });
+    assert.strictEqual(logoutRes.status, 200);
+
+    const replayAfterLogoutRes = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: {
+        Authorization: `Bearer ${victimToken}`,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) VictimBrowser/120.0'
+      }
+    });
+    assert.strictEqual(replayAfterLogoutRes.status, 401);
   });
 });

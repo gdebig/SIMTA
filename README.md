@@ -36,6 +36,10 @@
 - Di dalam file Excel, kolom lampiran menampilkan **nama berkas** disertai **tautan aktif (`HYPERLINK`)** untuk mengunduh berkas secara langsung.
 
 ### 4. Keamanan Siber (*Cybersecurity Hardening*)
+- **Batas Waktu Sesi 30 Menit (*30-Minute Session Idle Timeout*):** Sesi login pada mode Admin, Dosen, dan Mahasiswa maupun sesi pengisian form dibatasi maksimal **30 menit**. Jika pengguna tidak aktif selama lebih dari 30 menit, sesi di sisi server dan *browser* otomatis berakhir, seluruh form dibersihkan, dan pengguna dikembalikan ke halaman login.
+- **Anti-Session Injection, Session Fixation & Session Hijacking:**
+  - *Server-Side Active Session Registry* dengan ID sesi kriptografis (`jti` UUID) dan verifikasi tanda tangan HMAC-SHA256 secara *timing-safe* (`crypto.timingSafeEqual`).
+  - Pemblokiran injeksi atribut sesi pada proses login (`sessionId`, `jti`, `roles`), pemblokiran header sesi palsu (`X-Session-Id`, `X-Authenticated-User`, `X-Forwarded-User`), pengikatan *fingerprint* `User-Agent` (mencegah pembajakan token lintas klien), serta pencabutan sesi instan (*session revocation*) saat *logout* atau saat akun dinonaktifkan/dihapus.
 - **Anti-XSS (*Cross-Site Scripting*):** Seluruh konten Rich Text HTML disanitasi di sisi server menggunakan *whitelist* tag aman (`sanitize-html`), dan *field* teks biasa dibersihkan dari injeksi tag HTML/script.
 - **Anti-SQL Injection (SQLi):** Seluruh interaksi database menggunakan *parameterized queries* (`$1, $2, ...`) dan validasi format UUID ketat.
 - **Keamanan Unggahan Berkas & Anti-Path Traversal:**

@@ -1,4 +1,5 @@
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
+const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000; // Batas sesi tidak aktif: 30 Menit
 const ALLOWED_EXTS = new Set([
   '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.csv', '.zip', '.png', '.jpg', '.jpeg'
 ]);
@@ -20,7 +21,8 @@ const SUPERVISION_LABELS = {
 };
 
 const state = {
-  token: localStorage.getItem('simta_token') || null,
+  token: sessionStorage.getItem('simta_token') || localStorage.getItem('simta_token') || null,
+  lastActivityAt: Number(sessionStorage.getItem('simta_last_activity')) || Date.now(),
   user: null,
   activeViewRole: null,
   users: [],
@@ -128,6 +130,101 @@ function showAlert(message, type = 'info') {
   }, 6000);
 }
 
+function recordClientActivity() {
+  const now = Date.now();
+  state.lastActivityAt = now;
+  try {
+    sessionStorage.setItem('simta_last_activity', String(now));
+  } catch {
+    // Abaikan jika storage penuh
+  }
+}
+
+function clearAllFormsAndReturnToLogin(message = null) {
+  state.token = null;
+  state.user = null;
+  state.activeViewRole = null;
+  sessionStorage.removeItem('simta_token');
+  localStorage.removeItem('simta_token');
+  recordClientActivity();
+
+  const loginForm = document.getElementById('loginForm');
+  const selfRegisterForm = document.getElementById('selfRegisterForm');
+  const userForm = document.getElementById('userForm');
+  const createReportForm = document.getElementById('createReportForm');
+
+  if (loginForm) loginForm.reset();
+  if (selfRegisterForm) {
+    selfRegisterForm.reset();
+    const regEditor = document.getElementById('regThesisEditor');
+    if (regEditor) regEditor.innerHTML = '';
+  }
+  if (userForm) userForm.reset();
+  if (createReportForm) createReportForm.reset();
+
+  const btnShowLoginTab = document.getElementById('btnShowLoginTab');
+  if (btnShowLoginTab) btnShowLoginTab.click();
+
+  document.getElementById('appSection')?.classList.add('hidden');
+  document.getElementById('userChip')?.classList.add('hidden');
+  document.getElementById('roleSwitcherContainer')?.classList.add('hidden');
+  document.getElementById('loginSection')?.classList.remove('hidden');
+
+  if (message) {
+    showAlert(message, 'error');
+  }
+}
+
+function checkIdleSessionTimeout() {
+  const now = Date.now();
+  const idleElapsed = now - (state.lastActivityAt || now);
+  if (idleElapsed <= SESSION_IDLE_TIMEOUT_MS) return;
+
+  if (state.token || state.user) {
+    const expiredToken = state.token;
+    clearAllFormsAndReturnToLogin(
+      'Sesi Anda telah berakhir otomatis karena tidak aktif lebih dari 30 menit. Silakan login kembali.'
+    );
+    if (expiredToken) {
+      fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${expiredToken}` }
+      }).catch(() => {});
+    }
+    return;
+  }
+
+  // Jika user sedang mengisi form login atau pendaftaran akun baru namun diam > 30 menit
+  const loginIdentifier = document.getElementById('loginIdentifier')?.value || '';
+  const loginPassword = document.getElementById('loginPassword')?.value || '';
+  const regNipNpm = document.getElementById('regNipNpm')?.value || '';
+  const regName = document.getElementById('regName')?.value || '';
+  const regEmail = document.getElementById('regEmail')?.value || '';
+  const isRegisterVisible = !document.getElementById('selfRegisterForm')?.classList.contains('hidden');
+
+  if (loginIdentifier || loginPassword || regNipNpm || regName || regEmail || isRegisterVisible) {
+    clearAllFormsAndReturnToLogin(
+      'Sesi pengisian form telah habis karena tidak aktif lebih dari 30 menit. Silakan mulai kembali dari halaman login.'
+    );
+  } else {
+    recordClientActivity();
+  }
+}
+
+function initIdleSessionWatchdog() {
+  const activityEvents = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'input', 'click'];
+  activityEvents.forEach((evt) => {
+    window.addEventListener(evt, recordClientActivity, { passive: true });
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      checkIdleSessionTimeout();
+    }
+  });
+  window.addEventListener('focus', checkIdleSessionTimeout);
+  setInterval(checkIdleSessionTimeout, 10000);
+}
+
 async function apiFetch(url, options = {}) {
   const headers = options.headers ? { ...options.headers } : {};
   if (state.token) {
@@ -139,8 +236,14 @@ async function apiFetch(url, options = {}) {
   const response = await fetch(url, { ...options, headers });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 401 && state.token && !url.includes('/api/auth/login')) {
+      clearAllFormsAndReturnToLogin(
+        data.error || 'Sesi Anda telah berakhir karena tidak aktif lebih dari 30 menit. Silakan login kembali.'
+      );
+    }
     throw new Error(data.error || `HTTP Error ${response.status}`);
   }
+  recordClientActivity();
   return data;
 }
 
@@ -1180,6 +1283,7 @@ async function loadMahasiswaReports() {
 // 8. EVENT LISTENERS UTAMA
 // =========================================================
 document.addEventListener('DOMContentLoaded', async () => {
+  initIdleSessionWatchdog();
   await Promise.all([checkDatabaseStatus(), loadPublicDosenForRegistration()]);
   initWysiwygToolbars();
   initSandbox();
@@ -1266,7 +1370,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       state.token = data.token;
       state.user = data.user;
       state.activeViewRole = data.user.roles[0];
-      localStorage.setItem('simta_token', data.token);
+      sessionStorage.setItem('simta_token', data.token);
+      localStorage.removeItem('simta_token');
+      recordClientActivity();
       document.getElementById('loginPassword').value = '';
       enterAuthenticatedState();
     } catch (err) {
@@ -1276,15 +1382,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Logout
   document.getElementById('btnLogout').addEventListener('click', () => {
-    state.token = null;
-    state.user = null;
-    localStorage.removeItem('simta_token');
-    document.getElementById('loginIdentifier').value = '';
-    document.getElementById('loginPassword').value = '';
-    document.getElementById('appSection').classList.add('hidden');
-    document.getElementById('userChip').classList.add('hidden');
-    document.getElementById('roleSwitcherContainer').classList.add('hidden');
-    document.getElementById('loginSection').classList.remove('hidden');
+    const currentToken = state.token;
+    clearAllFormsAndReturnToLogin();
+    if (currentToken) {
+      fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${currentToken}` }
+      }).catch(() => {});
+    }
   });
 
   // Tutup panel laporan mahasiswa pada mode Admin
@@ -1530,7 +1635,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Restore session jika token tersimpan
+  // Restore session jika token tersimpan dan belum melewati batas 30 menit tidak aktif
+  checkIdleSessionTimeout();
   if (state.token) {
     try {
       const me = await apiFetch('/api/auth/me');
@@ -1538,6 +1644,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       state.activeViewRole = me.roles[0];
       enterAuthenticatedState();
     } catch {
+      sessionStorage.removeItem('simta_token');
       localStorage.removeItem('simta_token');
       state.token = null;
     }

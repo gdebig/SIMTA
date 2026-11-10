@@ -18,7 +18,15 @@ const {
   resolveSafeUploadPath,
   validateSafeUploadFiles
 } = require('./utils/validators');
-const { hashPassword, verifyPassword, createToken, verifyToken } = require('./utils/auth');
+const {
+  SESSION_IDLE_TIMEOUT_MS,
+  hashPassword,
+  verifyPassword,
+  createToken,
+  verifyToken,
+  revokeToken,
+  revokeAllUserSessions
+} = require('./utils/auth');
 const { generateProgressExcelBuffer } = require('./utils/excel');
 
 const app = express();
@@ -60,12 +68,24 @@ const upload = multer({
   }
 });
 
-// Middleware Header Keamanan HTTP (Anti-XSS, Clickjacking, MIME Sniffing)
-app.use((_req, res, next) => {
+// Middleware Header Keamanan HTTP (Anti-XSS, Clickjacking, MIME Sniffing & Anti-Session Injection)
+app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+
+  // Tolak percobaan injeksi header sesi kustom (Session Fixation / Header Injection)
+  if (
+    req.headers['x-session-id'] ||
+    req.headers['x-forwarded-user'] ||
+    req.headers['x-authenticated-user']
+  ) {
+    return res.status(400).json({
+      error: 'Terdeteksi percobaan Session Header Injection yang tidak diizinkan.'
+    });
+  }
   next();
 });
 
@@ -139,19 +159,29 @@ async function recordActivityLog(
 function authenticate(req, res, next) {
   const authHeader = req.headers.authorization;
   let token = null;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    token = authHeader.slice(7);
+  if (authHeader) {
+    if (typeof authHeader !== 'string' || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Format header Authorization tidak valid.' });
+    }
+    token = authHeader.slice(7).trim();
   } else if (req.query && typeof req.query.token === 'string') {
     token = req.query.token;
   }
   if (!token) {
     return res.status(401).json({ error: 'Token autentikasi tidak ditemukan.' });
   }
-  const payload = verifyToken(token);
+  const userAgent = req.headers['user-agent'] || 'default-client';
+  const payload = verifyToken(token, { userAgent });
   if (!payload) {
-    return res.status(401).json({ error: 'Token tidak valid atau telah kedaluwarsa.' });
+    return res.status(401).json({
+      code: 'SESSION_EXPIRED',
+      error:
+        'Sesi Anda tidak valid atau telah berakhir karena tidak aktif lebih dari 30 menit. Silakan login kembali.'
+    });
   }
+  res.setHeader('X-Session-Timeout-Minutes', '30');
   req.user = payload;
+  req.sessionToken = token;
   next();
 }
 
@@ -330,6 +360,20 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 app.post('/api/auth/login', async (req, res) => {
+  // Tolak percobaan Session Fixation / Session Injection melalui body atau query saat login
+  if (
+    req.body?.sessionId ||
+    req.body?.jti ||
+    req.body?.token ||
+    req.body?.roles ||
+    req.query?.sessionId ||
+    req.query?.token
+  ) {
+    return res.status(400).json({
+      error: 'Percobaan Session Injection / Session Fixation pada proses login ditolak.'
+    });
+  }
+
   const { identifier, password } = req.body;
   if (!identifier || !password || typeof identifier !== 'string' || typeof password !== 'string') {
     return res.status(400).json({ error: 'Email / NIP / NPM dan password wajib diisi.' });
@@ -379,7 +423,8 @@ app.post('/api/auth/login', async (req, res) => {
       email: user.email,
       roles: user.roles
     };
-    const token = createToken(payload);
+    const userAgent = req.headers['user-agent'] || 'default-client';
+    const token = createToken(payload, { userAgent, ttlMs: SESSION_IDLE_TIMEOUT_MS });
 
     await recordActivityLog({
       userId: user.id,
@@ -393,6 +438,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     res.json({
       token,
+      sessionTimeoutMs: SESSION_IDLE_TIMEOUT_MS,
       user: {
         ...payload,
         is_active: user.is_active,
@@ -412,6 +458,11 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: `Gagal memproses login: ${err.message}` });
   }
+});
+
+app.post('/api/auth/logout', authenticate, async (req, res) => {
+  revokeToken(req.sessionToken);
+  res.json({ loggedOut: true, message: 'Sesi berhasil diakhiri.' });
 });
 
 app.get('/api/auth/me', authenticate, async (req, res) => {
@@ -895,6 +946,9 @@ app.put('/api/users/:id', authenticate, requireRole('ADMIN'), async (req, res) =
     );
 
     await client.query('COMMIT');
+    if (!activeFlag || (password && password.trim().length > 0)) {
+      revokeAllUserSessions(id);
+    }
     res.json({ id, nip_or_npm: cleanNipNpm, name: cleanName, email: cleanEmail, is_active: activeFlag, roles: uniqueRoles });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -923,6 +977,7 @@ app.delete('/api/users/:id', authenticate, requireRole('ADMIN'), async (req, res
       return res.status(404).json({ error: 'Akun pengguna tidak ditemukan.' });
     }
     const deletedUser = delRes.rows[0];
+    revokeAllUserSessions(id);
 
     await recordActivityLog({
       userId: req.user.id,

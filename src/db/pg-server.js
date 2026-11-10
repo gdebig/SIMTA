@@ -3,19 +3,26 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { PGlite } = require('@electric-sql/pglite');
 const { PGLiteSocketServer } = require('@electric-sql/pglite-socket');
+const { reconfigurePool } = require('./index');
 const { seedDatabase } = require('./seed');
 
-const PORT = Number(process.env.PGPORT) || 5432;
-const HOST = process.env.PGHOST || '127.0.0.1';
+const DEFAULT_PORT = Number(process.env.PGPORT) || 5432;
+const DEFAULT_HOST = process.env.PGHOST || '127.0.0.1';
 const DATA_DIR = path.join(__dirname, '../../pgdata');
 
-async function startPostgresServer() {
-  if (!fs.existsSync(DATA_DIR)) {
+async function startPostgresServer(options = {}) {
+  const port = options.port !== undefined ? Number(options.port) : DEFAULT_PORT;
+  const host = options.host || (options.inMemory ? '127.0.0.1' : DEFAULT_HOST);
+  const inMemory = Boolean(options.inMemory);
+
+  if (!inMemory && !fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
 
-  console.log(`Menyiapkan engine PostgreSQL pada direktori: ${DATA_DIR}`);
-  const db = new PGlite(DATA_DIR);
+  console.log(
+    `Menyiapkan engine PostgreSQL pada ${inMemory ? 'memori terisolasi (In-Memory)' : `direktori: ${DATA_DIR}`}`
+  );
+  const db = inMemory ? new PGlite() : new PGlite(DATA_DIR);
   await db.waitReady;
 
   // Terapkan skema secara otomatis saat server database menyala
@@ -28,31 +35,45 @@ async function startPostgresServer() {
 
   const server = new PGLiteSocketServer({
     db,
-    port: PORT,
-    host: HOST,
+    port,
+    host,
     maxConnections: 25
   });
 
-  await server.start();
+  try {
+    await server.start();
+  } catch (err) {
+    console.error('Gagal menyalakan PGLiteSocketServer:', err.message);
+    await db.close();
+    throw err;
+  }
+
+  const boundPort = server.port || port;
+  if (boundPort !== DEFAULT_PORT || inMemory) {
+    await reconfigurePool({ host: '127.0.0.1', port: boundPort });
+  }
+
   console.log(`=============================================================`);
   console.log(`  PostgreSQL Server (PGlite Wire Protocol) Aktif`);
-  console.log(`  Listening on: ${HOST}:${PORT}`);
+  console.log(`  Listening on: ${host}:${boundPort}`);
   console.log(`=============================================================`);
 
-  // Pastikan data seed awal selalu tersinkronisasi (idempotent via ON CONFLICT)
+  // Pastikan akun Admin awal tersedia
   await seedDatabase({ closePool: false });
 
-  const shutdown = async () => {
-    console.log('\nMenghentikan PostgreSQL Server...');
-    await server.stop();
-    await db.close();
-    process.exit(0);
-  };
+  if (!inMemory) {
+    const shutdown = async () => {
+      console.log('\nMenghentikan PostgreSQL Server...');
+      await server.stop();
+      await db.close();
+      process.exit(0);
+    };
 
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
+  }
 
-  return { db, server };
+  return { db, server, port: boundPort };
 }
 
 if (require.main === module) {
