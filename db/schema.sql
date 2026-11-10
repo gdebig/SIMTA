@@ -1,6 +1,29 @@
 -- Sistem Informasi Manajemen Tugas Akhir (SIMTA)
 -- PostgreSQL Schema Blueprint
 
+-- Kompatibilitas PostgreSQL <= 12: Aktifkan pgcrypto atau buat fungsi fallback gen_random_uuid()
+DO $$ BEGIN
+    CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+EXCEPTION
+    WHEN OTHERS THEN null;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'gen_random_uuid') THEN
+        CREATE FUNCTION gen_random_uuid() RETURNS uuid AS $func$
+            SELECT (
+                substr(h, 1, 8) || '-' ||
+                substr(h, 9, 4) || '-4' ||
+                substr(h, 14, 3) || '-' ||
+                substr('89ab', (get_byte(decode(substr(h, 17, 2), 'hex'), 0) & 3) + 1, 1) ||
+                substr(h, 18, 3) || '-' ||
+                substr(h, 21, 12)
+            )::uuid
+            FROM (SELECT md5(random()::text || clock_timestamp()::text) AS h) AS s;
+        $func$ LANGUAGE SQL VOLATILE;
+    END IF;
+END $$;
+
 DO $$ BEGIN
     CREATE TYPE user_role AS ENUM ('ADMIN', 'DOSEN', 'MAHASISWA');
 EXCEPTION
