@@ -1,6 +1,6 @@
 require('dotenv').config();
-const path = require('node:path');
-const fs = require('node:fs');
+const path = require('path');
+const fs = require('fs');
 const { PGlite } = require('@electric-sql/pglite');
 const { PGLiteSocketServer } = require('@electric-sql/pglite-socket');
 const { reconfigurePool } = require('./index');

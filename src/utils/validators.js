@@ -1,5 +1,5 @@
-const path = require('node:path');
-const fs = require('node:fs');
+const path = require('path');
+const fs = require('fs');
 const sanitizeHtml = require('sanitize-html');
 
 const VALID_ROLES = ['ADMIN', 'DOSEN', 'MAHASISWA'];

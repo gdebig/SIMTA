@@ -22,11 +22,34 @@ echo "============================================================="
 echo "  SIMTA DTE UI - Persiapan Server Production"
 echo "============================================================="
 
-# 1. Validasi Node.js & NPM
+# 1. Validasi & Auto-Upgrade Node.js >= 18 LTS (khusus Ubuntu/Debian dengan Node lama)
+NEED_NODE_UPGRADE=false
 if ! command -v node >/dev/null 2>&1; then
-  echo "[ERROR] Node.js belum terinstal di server ini. Silakan instal Node.js >= 18 LTS."
-  exit 1
+  NEED_NODE_UPGRADE=true
+else
+  NODE_MAJOR="$(node -v | sed 's/^v//' | cut -d. -f1)"
+  if [[ "$NODE_MAJOR" -lt 18 ]]; then
+    echo "[PERINGATAN] Versi Node.js saat ini ($(node -v)) terlalu lama (bawaan apt Ubuntu)."
+    NEED_NODE_UPGRADE=true
+  fi
 fi
+
+if [[ "$NEED_NODE_UPGRADE" == "true" ]]; then
+  if command -v apt-get >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then
+    echo "[1/5] Menginstal / memperbarui ke Node.js 20 LTS melalui repositori resmi NodeSource..."
+    sudo apt-get update -y
+    sudo apt-get install -y ca-certificates curl gnupg
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+    hash -r
+  else
+    echo "[ERROR] Dibutuhkan Node.js >= 18 LTS. Silakan jalankan perintah berikut:"
+    echo "  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+    echo "  sudo apt-get install -y nodejs"
+    exit 1
+  fi
+fi
+
 echo "[1/5] Terdeteksi Node.js $(node -v) & npm $(npm -v)"
 
 # 2. Pastikan file .env tersedia dan memiliki AUTH_SECRET acak yang aman
@@ -47,9 +70,9 @@ mkdir -p uploads pgdata
 # 4. Instalasi dependencies production
 echo "[3/5] Menginstal dependencies Node.js untuk Production..."
 if [[ -f "package-lock.json" ]]; then
-  npm ci --omit=dev
+  npm ci --omit=dev || npm install --production
 else
-  npm install --omit=dev
+  npm install --omit=dev || npm install --production
 fi
 
 # 5. Inisialisasi atau Reset Database Production (hanya menyisakan akun Admin)
@@ -58,6 +81,7 @@ if [[ "$RESET_DB" == "true" ]]; then
   NODE_ENV=production npm run db:reset
 else
   echo "[4/5] Memastikan skema database dan akun Admin utama tersedia..."
+  NODE_ENV=production npm run db:init
   NODE_ENV=production npm run db:seed
 fi
 
@@ -74,4 +98,3 @@ else
   echo "PM2 tidak ditemukan. Menjalankan server secara langsung dengan NODE_ENV=production..."
   NODE_ENV=production exec node src/server.js
 fi
-

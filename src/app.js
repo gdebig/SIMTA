@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
-const path = require('node:path');
-const fs = require('node:fs');
+const path = require('path');
+const fs = require('fs');
 const multer = require('multer');
 const db = require('./db');
 const {

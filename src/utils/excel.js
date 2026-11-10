@@ -1,4 +1,4 @@
-const zlib = require('node:zlib');
+const zlib = require('zlib');
 
 /**
  * Konversi HTML sederhana menjadi teks bersih untuk sel Excel

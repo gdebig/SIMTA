@@ -1,7 +1,6 @@
 require('dotenv').config();
-const net = require('node:net');
+const net = require('net');
 const app = require('./app');
-const { startPostgresServer } = require('./db/pg-server');
 
 const PORT = Number(process.env.PORT) || 3000;
 const PGHOST = process.env.PGHOST || '127.0.0.1';
@@ -31,6 +30,7 @@ async function bootstrap() {
   const pgRunning = await isPortOpen(PGHOST, PGPORT);
   if (!pgRunning) {
     console.log(`Menyalakan server PostgreSQL lokal pada ${PGHOST}:${PGPORT}...`);
+    const { startPostgresServer } = require('./db/pg-server');
     await startPostgresServer();
   } else {
     console.log(`Terhubung ke instance PostgreSQL aktif pada ${PGHOST}:${PGPORT}`);

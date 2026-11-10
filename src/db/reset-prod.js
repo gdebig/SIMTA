@@ -1,10 +1,9 @@
 require('dotenv').config();
-const fs = require('node:fs');
-const net = require('node:net');
-const path = require('node:path');
+const fs = require('fs');
+const net = require('net');
+const path = require('path');
 const { pool } = require('./index');
 const { seedDatabase } = require('./seed');
-const { startPostgresServer } = require('./pg-server');
 
 const PGHOST = process.env.PGHOST || '127.0.0.1';
 const PGPORT = Number(process.env.PGPORT) || 5432;
@@ -34,6 +33,7 @@ async function resetProductionDatabase() {
   try {
     const running = await isPortOpen(PGHOST, PGPORT);
     if (!running) {
+      const { startPostgresServer } = require('./pg-server');
       pgHandle = await startPostgresServer();
     }
 

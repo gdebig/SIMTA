@@ -1,5 +1,12 @@
-const crypto = require('node:crypto');
+const crypto = require('crypto');
 const { validateUserRoles } = require('./validators');
+
+function generateRandomId() {
+  if (typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return crypto.randomBytes(16).toString('hex');
+}
 
 /**
  * Batas waktu ketidakaktifan sesi (Idle Session Timeout): 30 Menit
@@ -76,7 +83,7 @@ function createToken(payload, options = {}) {
       : SESSION_IDLE_TIMEOUT_MS;
 
   // Selalu buat ID sesi baru yang acak secara kriptografis (Anti-Session Fixation)
-  const jti = crypto.randomUUID();
+  const jti = generateRandomId();
   const fingerprint = options.userAgent ? computeClientFingerprint(options.userAgent) : null;
 
   const sessionPayload = {

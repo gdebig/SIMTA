@@ -1,6 +1,6 @@
 require('dotenv').config();
-const fs = require('node:fs');
-const path = require('node:path');
+const fs = require('fs');
+const path = require('path');
 const { pool, getClient } = require('./index');
 const { hashPassword } = require('../utils/auth');
 const { validateUserRoles } = require('../utils/validators');
@@ -22,7 +22,11 @@ function cleanUploadsFolder(uploadDir) {
     if (entry === '.gitkeep') continue;
     const fullPath = path.join(uploadDir, entry);
     try {
-      fs.rmSync(fullPath, { recursive: true, force: true });
+      if (typeof fs.rmSync === 'function') {
+        fs.rmSync(fullPath, { recursive: true, force: true });
+      } else {
+        fs.unlinkSync(fullPath);
+      }
     } catch {
       // Abaikan jika gagal menghapus file sementara
     }
