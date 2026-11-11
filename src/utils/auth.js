@@ -285,13 +285,188 @@ function simulateSessionInactivity(token, idleMs = SESSION_IDLE_TIMEOUT_MS + 600
   }
 }
 
+/**
+ * =========================================================================
+ * CAPTCHA ANTI-BOT & NON-ORGANIC USER PROTECTION (SERVER-SIDE CHALLENGE)
+ * =========================================================================
+ */
+const CAPTCHA_TTL_MS = 5 * 60 * 1000; // Berlaku 5 menit & sekali pakai (Single-Use)
+const CAPTCHA_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const activeCaptchas = new Map();
+
+function cleanupExpiredCaptchas() {
+  const now = Date.now();
+  for (const [id, item] of activeCaptchas.entries()) {
+    if (now > item.expiresAt) {
+      activeCaptchas.delete(id);
+    }
+  }
+}
+
+/**
+ * Membuat tantangan CAPTCHA baru berupa kode 5 karakter dengan gambar SVG terdistorsi
+ * yang disimpan di memori server dan hanya dapat digunakan satu kali (One-Time Use).
+ */
+function createCaptchaChallenge(options = {}) {
+  cleanupExpiredCaptchas();
+
+  const length = 5;
+  let code = '';
+  const randomBytes = crypto.randomBytes(length);
+  for (let i = 0; i < length; i++) {
+    code += CAPTCHA_CHARS[randomBytes[i] % CAPTCHA_CHARS.length];
+  }
+
+  const captchaId = generateRandomId();
+  const now = Date.now();
+  const ttlMs =
+    typeof options.ttlMs === 'number' && Number.isFinite(options.ttlMs)
+      ? options.ttlMs
+      : CAPTCHA_TTL_MS;
+
+  activeCaptchas.set(captchaId, {
+    id: captchaId,
+    answer: code,
+    createdAt: now,
+    expiresAt: now + ttlMs
+  });
+
+  // Bangun gambar SVG terdistorsi (garis acak, titik noise, rotasi huruf) agar tahan terhadap bot scraper
+  const width = 190;
+  const height = 56;
+  let noiseLines = '';
+  for (let i = 0; i < 6; i++) {
+    const x1 = crypto.randomInt(0, width);
+    const y1 = crypto.randomInt(0, height);
+    const x2 = crypto.randomInt(0, width);
+    const y2 = crypto.randomInt(0, height);
+    const stroke = i % 2 === 0 ? '#F8C300' : '#64748B';
+    noiseLines += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${stroke}" stroke-width="1.4" opacity="0.45" />`;
+  }
+
+  let noiseDots = '';
+  for (let i = 0; i < 24; i++) {
+    const cx = crypto.randomInt(4, width - 4);
+    const cy = crypto.randomInt(4, height - 4);
+    const r = crypto.randomInt(1, 3);
+    const fill = i % 3 === 0 ? '#F8C300' : '#94A3B8';
+    noiseDots += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" opacity="0.5" />`;
+  }
+
+  let charsSvg = '';
+  const colors = ['#F8FAFC', '#F8C300', '#E2E8F0', '#FDE047', '#FFFFFF'];
+  for (let i = 0; i < code.length; i++) {
+    const ch = code[i];
+    const x = 24 + i * 32 + crypto.randomInt(-3, 4);
+    const y = 36 + crypto.randomInt(-5, 6);
+    const angle = crypto.randomInt(-18, 19);
+    const color = colors[i % colors.length];
+    charsSvg += `<text x="${x}" y="${y}" fill="${color}" font-family="monospace, sans-serif" font-size="25" font-weight="bold" transform="rotate(${angle} ${x} ${y})">${ch}</text>`;
+  }
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+    <rect width="100%" height="100%" rx="8" fill="#0F172A" />
+    <path d="M 0 28 Q 48 10, 95 28 T 190 28" fill="none" stroke="#1E3A8A" stroke-width="3" opacity="0.7" />
+    ${noiseLines}
+    ${noiseDots}
+    ${charsSvg}
+  </svg>`;
+
+  const imageDataUrl = `data:image/svg+xml;base64,${Buffer.from(svg, 'utf8').toString('base64')}`;
+
+  return {
+    captchaId,
+    imageDataUrl,
+    expiresInMs: ttlMs
+  };
+}
+
+/**
+ * Hanya digunakan oleh unit/E2E test internal di lingkungan pengujian
+ * untuk mengambil jawaban dari captchaId yang baru dibuat oleh server test.
+ */
+function peekCaptchaAnswerForTest(captchaId) {
+  const item = activeCaptchas.get(captchaId);
+  return item ? item.answer : null;
+}
+
+/**
+ * Verifikasi jawaban CAPTCHA dan langsung hanguskan token tantangan (Single-Use)
+ * agar tidak dapat digunakan ulang (Anti-Replay & Anti-Brute-Force Bot).
+ */
+function verifyCaptchaChallenge(captchaId, captchaAnswer, options = {}) {
+  cleanupExpiredCaptchas();
+
+  if (options.honeypot && String(options.honeypot).trim() !== '') {
+    if (captchaId && typeof captchaId === 'string') {
+      activeCaptchas.delete(captchaId);
+    }
+    return {
+      valid: false,
+      error: 'Aktivitas bot atau pengisian otomatis tidak organik terdeteksi dan ditolak.'
+    };
+  }
+
+  if (
+    !captchaId ||
+    typeof captchaId !== 'string' ||
+    !captchaAnswer ||
+    typeof captchaAnswer !== 'string'
+  ) {
+    return {
+      valid: false,
+      error: 'Verifikasi keamanan CAPTCHA wajib diisi.'
+    };
+  }
+
+  const challenge = activeCaptchas.get(captchaId.trim());
+  // Langsung hapus tantangan setelah diakses (Single-Use / One-Time Token)
+  activeCaptchas.delete(captchaId.trim());
+
+  if (!challenge) {
+    return {
+      valid: false,
+      error: 'Kode CAPTCHA tidak valid atau sudah pernah digunakan. Silakan muat ulang CAPTCHA.'
+    };
+  }
+
+  if (Date.now() > challenge.expiresAt) {
+    return {
+      valid: false,
+      error: 'Kode CAPTCHA telah kedaluwarsa. Silakan muat ulang CAPTCHA baru.'
+    };
+  }
+
+  const normalizedInput = captchaAnswer.trim().toUpperCase();
+  const expected = challenge.answer.toUpperCase();
+
+  const inputBuf = Buffer.from(normalizedInput, 'utf8');
+  const expectedBuf = Buffer.from(expected, 'utf8');
+
+  if (
+    inputBuf.length !== expectedBuf.length ||
+    !crypto.timingSafeEqual(inputBuf, expectedBuf)
+  ) {
+    return {
+      valid: false,
+      error: 'Kode verifikasi CAPTCHA tidak sesuai. Silakan coba kembali.'
+    };
+  }
+
+  return { valid: true };
+}
+
 module.exports = {
   SESSION_IDLE_TIMEOUT_MS,
+  CAPTCHA_TTL_MS,
   hashPassword,
   verifyPassword,
   createToken,
   verifyToken,
   revokeToken,
   revokeAllUserSessions,
-  simulateSessionInactivity
+  simulateSessionInactivity,
+  createCaptchaChallenge,
+  verifyCaptchaChallenge,
+  peekCaptchaAnswerForTest
 };

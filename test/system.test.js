@@ -18,7 +18,10 @@ const {
   createToken,
   verifyToken,
   revokeToken,
-  simulateSessionInactivity
+  simulateSessionInactivity,
+  createCaptchaChallenge,
+  verifyCaptchaChallenge,
+  peekCaptchaAnswerForTest
 } = require('../src/utils/auth');
 const app = require('../src/app');
 const { startPostgresServer } = require('../src/db/pg-server');
@@ -202,6 +205,31 @@ describe('Sistem Informasi Tugas Akhir - Core Rule Tests', () => {
     assert.strictEqual(verifyToken(`${mhsToken}\r\nSet-Cookie: hacked=1`), null);
     assert.strictEqual(verifyToken(`${mhsToken}\0`), null);
   });
+
+  test('Keamanan CAPTCHA & Anti-Bot Honeypot (Unit): Tantangan SVG valid, sekali pakai (Single-Use), dan menolak pengisian Honeypot', () => {
+    const ch1 = createCaptchaChallenge();
+    assert.ok(ch1.captchaId);
+    assert.ok(ch1.imageDataUrl.startsWith('data:image/svg+xml;base64,'));
+    const answer1 = peekCaptchaAnswerForTest(ch1.captchaId);
+    assert.strictEqual(answer1.length, 5);
+
+    // 1. Jawaban benar diterima (case-insensitive)
+    const verifyOk = verifyCaptchaChallenge(ch1.captchaId, answer1.toLowerCase());
+    assert.strictEqual(verifyOk.valid, true);
+
+    // 2. Replay attack menggunakan captchaId yang sama harus ditolak karena Single-Use
+    const replayAttempt = verifyCaptchaChallenge(ch1.captchaId, answer1);
+    assert.strictEqual(replayAttempt.valid, false);
+
+    // 3. Pengisian field Honeypot oleh bot otomatis ditolak meskipun kode CAPTCHA benar
+    const ch2 = createCaptchaChallenge();
+    const answer2 = peekCaptchaAnswerForTest(ch2.captchaId);
+    const botAttempt = verifyCaptchaChallenge(ch2.captchaId, answer2, {
+      honeypot: 'http://spam-bot.example.com'
+    });
+    assert.strictEqual(botAttempt.valid, false);
+    assert.match(botAttempt.error, /bot/i);
+  });
 });
 
 describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecurity Tests', () => {
@@ -211,6 +239,17 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
   let adminToken;
   let mahasiswaToken;
   let tempUserId;
+
+  async function issueTestCaptcha() {
+    const res = await fetch(`${baseUrl}/api/auth/captcha`);
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    const answer = peekCaptchaAnswerForTest(data.captchaId);
+    return {
+      captcha_id: data.captchaId,
+      captcha_answer: answer
+    };
+  }
 
   before(async () => {
     pgHandle = await startPostgresServer({ port: 0, inMemory: true });
@@ -236,12 +275,14 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
 
   test('Login akun Admin utama serta penyiapan akun uji Dual-Role & Mahasiswa berhasil', async () => {
     // 1. Login menggunakan akun Admin utama yang disisakan di database
+    const adminCaptcha = await issueTestCaptcha();
     const res = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         identifier: DEFAULT_ADMIN.email,
-        password: DEFAULT_ADMIN.password
+        password: DEFAULT_ADMIN.password,
+        ...adminCaptcha
       })
     });
     assert.strictEqual(res.status, 200);
@@ -325,12 +366,14 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
       })
     });
 
+    const mhsCaptcha = await issueTestCaptcha();
     const mhsRes = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         identifier: 'dimas.pratama@ui.ac.id',
-        password: 'simta123'
+        password: 'simta123',
+        ...mhsCaptcha
       })
     });
     assert.strictEqual(mhsRes.status, 200);
@@ -348,10 +391,15 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
     ];
 
     for (const payload of sqliLoginPayloads) {
+      const sqliCaptcha = await issueTestCaptcha();
       const res = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: payload, password: "' OR '1'='1" })
+        body: JSON.stringify({
+          identifier: payload,
+          password: "' OR '1'='1",
+          ...sqliCaptcha
+        })
       });
       assert.strictEqual(res.status, 401, `Payload SQLi seharusnya ditolak: ${payload}`);
     }
@@ -579,6 +627,25 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
     const regNpm = `2506${Math.floor(100000 + Math.random() * 900000)}`;
     const regEmail = `mhs.${regNpm}@ui.ac.id`;
 
+    // 0. Bot mencoba mendaftar tanpa CAPTCHA atau mengisi Honeypot harus ditolak
+    const botRegRes = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        role: 'MAHASISWA',
+        nip_or_npm: regNpm,
+        name: 'Bot Spammer',
+        email: regEmail,
+        password: 'simta123',
+        degree: 'S1',
+        start_academic_year: '2025/2026',
+        website_url: 'http://spam-link.com'
+      })
+    });
+    assert.strictEqual(botRegRes.status, 400);
+
+    // 1. Pendaftar organik dengan CAPTCHA valid
+    const regCaptcha = await issueTestCaptcha();
     const regRes = await fetch(`${baseUrl}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -590,7 +657,8 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
         password: 'simta123',
         degree: 'S1',
         start_academic_year: '2025/2026',
-        thesis_title: '<p>Sistem Kendali Cerdas</p>'
+        thesis_title: '<p>Sistem Kendali Cerdas</p>',
+        ...regCaptcha
       })
     });
     assert.strictEqual(regRes.status, 201);
@@ -599,10 +667,11 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
     assert.strictEqual(regData.user.approval_status, 'PENDING');
     const newId = regData.user.id;
 
+    const loginBeforeCaptcha = await issueTestCaptcha();
     const loginBeforeRes = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier: regEmail, password: 'simta123' })
+      body: JSON.stringify({ identifier: regEmail, password: 'simta123', ...loginBeforeCaptcha })
     });
     assert.strictEqual(loginBeforeRes.status, 403);
 
@@ -615,10 +684,11 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
     assert.strictEqual(approvedData.is_active, true);
     assert.strictEqual(approvedData.approval_status, 'APPROVED');
 
+    const loginAfterCaptcha = await issueTestCaptcha();
     const loginAfterRes = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier: regEmail, password: 'simta123' })
+      body: JSON.stringify({ identifier: regEmail, password: 'simta123', ...loginAfterCaptcha })
     });
     assert.strictEqual(loginAfterRes.status, 200);
 
@@ -639,27 +709,30 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
 
   test('Cybersecurity - Session Idle Timeout 30 Menit (E2E): Sesi login Admin, Dosen, dan Mahasiswa otomatis habis jika tidak aktif > 30 menit dan menolak submit form', async () => {
     // 1. Login untuk ketiga mode (Admin, Dosen, dan Mahasiswa)
+    const capAdmin = await issueTestCaptcha();
     const loginAdmin = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'User-Agent': 'SIMTA-Test-Browser/1.0' },
-      body: JSON.stringify({ identifier: DEFAULT_ADMIN.email, password: DEFAULT_ADMIN.password })
+      body: JSON.stringify({ identifier: DEFAULT_ADMIN.email, password: DEFAULT_ADMIN.password, ...capAdmin })
     });
     assert.strictEqual(loginAdmin.status, 200);
     const adminSession = await loginAdmin.json();
     assert.strictEqual(adminSession.sessionTimeoutMs, 30 * 60 * 1000);
 
+    const capDosen = await issueTestCaptcha();
     const loginDosen = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'User-Agent': 'SIMTA-Test-Browser/1.0' },
-      body: JSON.stringify({ identifier: 'budi.santoso@ui.ac.id', password: 'simta123' })
+      body: JSON.stringify({ identifier: 'budi.santoso@ui.ac.id', password: 'simta123', ...capDosen })
     });
     assert.strictEqual(loginDosen.status, 200);
     const dosenSession = await loginDosen.json();
 
+    const capMhs = await issueTestCaptcha();
     const loginMhs = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'User-Agent': 'SIMTA-Test-Browser/1.0' },
-      body: JSON.stringify({ identifier: 'dimas.pratama@ui.ac.id', password: 'simta123' })
+      body: JSON.stringify({ identifier: 'dimas.pratama@ui.ac.id', password: 'simta123', ...capMhs })
     });
     assert.strictEqual(loginMhs.status, 200);
     const mhsSession = await loginMhs.json();
@@ -730,13 +803,14 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
     assert.strictEqual(headerInjRes.status, 400);
 
     // 3. Serangan Cross-Client Session Hijacking / Injection (menggunakan token curian dari User-Agent berbeda)
+    const vicCap = await issueTestCaptcha();
     const victimLogin = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) VictimBrowser/120.0'
       },
-      body: JSON.stringify({ identifier: 'dimas.pratama@ui.ac.id', password: 'simta123' })
+      body: JSON.stringify({ identifier: 'dimas.pratama@ui.ac.id', password: 'simta123', ...vicCap })
     });
     assert.strictEqual(victimLogin.status, 200);
     const { token: victimToken } = await victimLogin.json();
@@ -770,12 +844,14 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
 
   test('Wajib Ubah Initial Password Admin saat Pertama Kali Login & Edit Profil/Password untuk Admin, Dosen, dan Mahasiswa', async () => {
     // 1. Saat Admin login pertama kali menggunakan initial password, flag must_change_password bernilai true
+    const initCap = await issueTestCaptcha();
     const initLoginRes = await fetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         identifier: DEFAULT_ADMIN.email,
-        password: DEFAULT_ADMIN.password
+        password: DEFAULT_ADMIN.password,
+        ...initCap
       })
     });
     assert.strictEqual(initLoginRes.status, 200);

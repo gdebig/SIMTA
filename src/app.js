@@ -25,7 +25,9 @@ const {
   createToken,
   verifyToken,
   revokeToken,
-  revokeAllUserSessions
+  revokeAllUserSessions,
+  createCaptchaChallenge,
+  verifyCaptchaChallenge
 } = require('./utils/auth');
 const { generateProgressExcelBuffer } = require('./utils/excel');
 
@@ -252,8 +254,16 @@ app.post('/api/utils/sanitize', (req, res) => {
 });
 
 // ==========================================
-// AUTHENTICATION & SELF-REGISTRATION
+// AUTHENTICATION, CAPTCHA & SELF-REGISTRATION
 // ==========================================
+
+// Endpoint untuk menghasilkan tantangan CAPTCHA Anti-Bot baru (berlaku 5 menit & sekali pakai)
+app.get('/api/auth/captcha', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  const challenge = createCaptchaChallenge();
+  res.json(challenge);
+});
+
 app.post('/api/auth/register', async (req, res) => {
   const {
     nip_or_npm,
@@ -264,8 +274,22 @@ app.post('/api/auth/register', async (req, res) => {
     degree,
     start_academic_year,
     thesis_title,
-    dosen_pembimbing_id
+    dosen_pembimbing_id,
+    captcha_id,
+    captcha_answer,
+    website_url
   } = req.body;
+
+  // Verifikasi CAPTCHA & Honeypot Anti-Bot sebelum memproses pendaftaran akun baru
+  const captchaCheck = verifyCaptchaChallenge(captcha_id, captcha_answer, {
+    honeypot: website_url
+  });
+  if (!captchaCheck.valid) {
+    return res.status(400).json({
+      code: 'CAPTCHA_INVALID',
+      error: captchaCheck.error
+    });
+  }
 
   const cleanNipNpm = sanitizePlainText(nip_or_npm);
   const cleanName = sanitizePlainText(name);
@@ -374,9 +398,20 @@ app.post('/api/auth/login', async (req, res) => {
     });
   }
 
-  const { identifier, password } = req.body;
+  const { identifier, password, captcha_id, captcha_answer, website_url } = req.body;
   if (!identifier || !password || typeof identifier !== 'string' || typeof password !== 'string') {
     return res.status(400).json({ error: 'Email / NIP / NPM dan password wajib diisi.' });
+  }
+
+  // Verifikasi CAPTCHA & Honeypot Anti-Bot pada proses Login
+  const captchaCheck = verifyCaptchaChallenge(captcha_id, captcha_answer, {
+    honeypot: website_url
+  });
+  if (!captchaCheck.valid) {
+    return res.status(400).json({
+      code: 'CAPTCHA_INVALID',
+      error: captchaCheck.error
+    });
   }
 
   try {

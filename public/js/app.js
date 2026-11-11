@@ -170,6 +170,8 @@ function clearAllFormsAndReturnToLogin(message = null) {
   document.getElementById('roleSwitcherContainer')?.classList.add('hidden');
   document.getElementById('loginSection')?.classList.remove('hidden');
 
+  loadCaptcha('login');
+
   if (message) {
     showAlert(message, 'error');
   }
@@ -245,6 +247,33 @@ async function apiFetch(url, options = {}) {
   }
   recordClientActivity();
   return data;
+}
+
+// Muat tantangan CAPTCHA Anti-Bot untuk form Login atau Pendaftaran Akun Baru
+async function loadCaptcha(target = 'login') {
+  try {
+    const res = await fetch('/api/auth/captcha', { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (target === 'register') {
+      const imgEl = document.getElementById('regCaptchaImage');
+      const idEl = document.getElementById('regCaptchaId');
+      const ansEl = document.getElementById('regCaptchaAnswer');
+      if (imgEl) imgEl.src = data.imageDataUrl;
+      if (idEl) idEl.value = data.captchaId || '';
+      if (ansEl) ansEl.value = '';
+    } else {
+      const imgEl = document.getElementById('loginCaptchaImage');
+      const idEl = document.getElementById('loginCaptchaId');
+      const ansEl = document.getElementById('loginCaptchaAnswer');
+      if (imgEl) imgEl.src = data.imageDataUrl;
+      if (idEl) idEl.value = data.captchaId || '';
+      if (ansEl) ansEl.value = '';
+    }
+  } catch {
+    // Abaikan jika gagal memuat captcha sementara
+  }
 }
 
 // 1. Muat Daftar Dosen Publik untuk Form Registrasi Mandiri
@@ -1267,9 +1296,21 @@ async function loadMahasiswaReports() {
 // =========================================================
 document.addEventListener('DOMContentLoaded', async () => {
   initIdleSessionWatchdog();
-  await loadPublicDosenForRegistration();
+  await Promise.all([
+    loadPublicDosenForRegistration(),
+    loadCaptcha('login'),
+    loadCaptcha('register')
+  ]);
   initWysiwygToolbars();
   initSandbox();
+
+  // Tombol muat ulang kode CAPTCHA pada halaman Login dan Pendaftaran Akun Baru
+  document.getElementById('btnRefreshLoginCaptcha')?.addEventListener('click', () => {
+    loadCaptcha('login');
+  });
+  document.getElementById('btnRefreshRegCaptcha')?.addEventListener('click', () => {
+    loadCaptcha('register');
+  });
 
   // Toggle antara Tab Login & Tab Daftar Akun Baru pada halaman Login
   const loginForm = document.getElementById('loginForm');
@@ -1284,6 +1325,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnShowLoginTab.className = 'btn btn-primary btn-sm';
     btnShowRegisterTab.className = 'btn btn-outline btn-sm';
     authCardTitle.textContent = 'Masuk ke Portal SIMTA';
+    loadCaptcha('login');
   };
 
   const showRegisterTab = () => {
@@ -1293,6 +1335,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnShowLoginTab.className = 'btn btn-outline btn-sm';
     authCardTitle.textContent = 'Pendaftaran Akun Baru SIMTA';
     loadPublicDosenForRegistration();
+    loadCaptcha('register');
   };
 
   btnShowLoginTab.addEventListener('click', showLoginTab);
@@ -1322,7 +1365,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       degree: document.getElementById('regDegree').value,
       start_academic_year: document.getElementById('regAcademicYear').value,
       dosen_pembimbing_id: document.getElementById('regDosenPembimbing').value || null,
-      thesis_title: document.getElementById('regThesisEditor').innerHTML.trim()
+      thesis_title: document.getElementById('regThesisEditor').innerHTML.trim(),
+      captcha_id: document.getElementById('regCaptchaId').value,
+      captcha_answer: document.getElementById('regCaptchaAnswer').value.trim(),
+      website_url: document.getElementById('regHoneypot')?.value || ''
     };
 
     try {
@@ -1336,6 +1382,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       showLoginTab();
     } catch (err) {
       showAlert(err.message, 'error');
+      loadCaptcha('register');
     }
   });
 
@@ -1344,11 +1391,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     e.preventDefault();
     const identifier = document.getElementById('loginIdentifier').value;
     const password = document.getElementById('loginPassword').value;
+    const captcha_id = document.getElementById('loginCaptchaId').value;
+    const captcha_answer = document.getElementById('loginCaptchaAnswer').value.trim();
+    const website_url = document.getElementById('loginHoneypot')?.value || '';
 
     try {
       const data = await apiFetch('/api/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ identifier, password })
+        body: JSON.stringify({
+          identifier,
+          password,
+          captcha_id,
+          captcha_answer,
+          website_url
+        })
       });
       state.token = data.token;
       state.user = data.user;
@@ -1357,9 +1413,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       localStorage.removeItem('simta_token');
       recordClientActivity();
       document.getElementById('loginPassword').value = '';
+      document.getElementById('loginCaptchaAnswer').value = '';
       enterAuthenticatedState();
     } catch (err) {
       showAlert(err.message, 'error');
+      loadCaptcha('login');
     }
   });
 

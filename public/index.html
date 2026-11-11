@@ -95,6 +95,12 @@
 
         <!-- FORM LOGIN -->
         <form id="loginForm">
+          <!-- Honeypot Anti-Bot (Disembunyikan dari pengguna organik) -->
+          <div style="position:absolute;left:-9999px;top:-9999px;opacity:0;pointer-events:none;" aria-hidden="true">
+            <label for="loginHoneypot">Jangan diisi jika Anda manusia</label>
+            <input type="text" id="loginHoneypot" name="website_url" tabindex="-1" autocomplete="off" />
+          </div>
+
           <div class="form-group">
             <label class="form-label" for="loginIdentifier">Email UI atau NIP / NPM</label>
             <input type="text" id="loginIdentifier" class="form-control" placeholder="Masukkan Email UI atau NIP / NPM Anda" autocomplete="username" required />
@@ -103,6 +109,35 @@
             <label class="form-label" for="loginPassword">Kata Sandi</label>
             <input type="password" id="loginPassword" class="form-control" placeholder="Masukkan kata sandi" autocomplete="current-password" required />
           </div>
+
+          <!-- VERIFIKASI KEAMANAN CAPTCHA LOGIN -->
+          <div class="form-group" style="background:var(--surface-neutral);padding:0.75rem;border-radius:8px;border:1px solid var(--border-color);">
+            <label class="form-label" for="loginCaptchaAnswer" style="margin-bottom:0.4rem;">
+              🛡️ Verifikasi Keamanan Anti-Bot (CAPTCHA)
+            </label>
+            <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.55rem;flex-wrap:wrap;">
+              <img
+                id="loginCaptchaImage"
+                alt="Kode Verifikasi CAPTCHA Login"
+                style="height:52px;width:180px;border-radius:6px;border:1px solid #CBD5E1;background:#0F172A;object-fit:cover;"
+              />
+              <button type="button" class="btn btn-outline btn-sm" id="btnRefreshLoginCaptcha" title="Muat ulang kode CAPTCHA baru">
+                🔄 Kode Baru
+              </button>
+            </div>
+            <input type="hidden" id="loginCaptchaId" />
+            <input
+              type="text"
+              id="loginCaptchaAnswer"
+              class="form-control"
+              placeholder="Ketik 5 karakter kode di atas"
+              maxlength="8"
+              autocomplete="off"
+              style="text-transform:uppercase;letter-spacing:0.12em;font-weight:600;"
+              required
+            />
+          </div>
+
           <button type="submit" class="btn btn-primary" style="width:100%;">Masuk</button>
           <p style="font-size:0.8rem;color:var(--text-secondary);margin-top:0.75rem;text-align:center;">
             Belum memiliki akun? <button type="button" class="action-link" id="linkToRegister">Daftarkan akun Anda di sini</button>
@@ -111,6 +146,12 @@
 
         <!-- FORM PENDAFTARAN AKUN MANDIRI (PERLU APPROVAL ADMIN) -->
         <form id="selfRegisterForm" class="hidden">
+          <!-- Honeypot Anti-Bot (Disembunyikan dari pengguna organik) -->
+          <div style="position:absolute;left:-9999px;top:-9999px;opacity:0;pointer-events:none;" aria-hidden="true">
+            <label for="regHoneypot">Jangan diisi jika Anda manusia</label>
+            <input type="text" id="regHoneypot" name="website_url" tabindex="-1" autocomplete="off" />
+          </div>
+
           <div class="alert alert-info" style="font-size:0.8rem;margin-bottom:0.9rem;">
             Akun yang didaftarkan melalui halaman ini memerlukan <strong>persetujuan (approval) dari Admin</strong> sebelum dapat aktif dan digunakan login.
           </div>
@@ -177,6 +218,34 @@
                 <div id="regThesisEditor" class="wysiwyg-editor compact" contenteditable="true"></div>
               </div>
             </div>
+          </div>
+
+          <!-- VERIFIKASI KEAMANAN CAPTCHA PENDAFTARAN AKUN BARU -->
+          <div class="form-group" style="background:var(--surface-neutral);padding:0.75rem;border-radius:8px;border:1px solid var(--border-color);">
+            <label class="form-label" for="regCaptchaAnswer" style="margin-bottom:0.4rem;">
+              🛡️ Verifikasi Keamanan Anti-Bot (CAPTCHA)
+            </label>
+            <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.55rem;flex-wrap:wrap;">
+              <img
+                id="regCaptchaImage"
+                alt="Kode Verifikasi CAPTCHA Pendaftaran"
+                style="height:52px;width:180px;border-radius:6px;border:1px solid #CBD5E1;background:#0F172A;object-fit:cover;"
+              />
+              <button type="button" class="btn btn-outline btn-sm" id="btnRefreshRegCaptcha" title="Muat ulang kode CAPTCHA baru">
+                🔄 Kode Baru
+              </button>
+            </div>
+            <input type="hidden" id="regCaptchaId" />
+            <input
+              type="text"
+              id="regCaptchaAnswer"
+              class="form-control"
+              placeholder="Ketik 5 karakter kode di atas"
+              maxlength="8"
+              autocomplete="off"
+              style="text-transform:uppercase;letter-spacing:0.12em;font-weight:600;"
+              required
+            />
           </div>
 
           <button type="submit" class="btn btn-yellow" style="width:100%;">

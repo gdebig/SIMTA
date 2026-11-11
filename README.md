@@ -41,6 +41,10 @@
 - Di dalam file Excel, kolom lampiran menampilkan **nama berkas** disertai **tautan aktif (`HYPERLINK`)** untuk mengunduh berkas secara langsung.
 
 ### 4. Keamanan Siber (*Cybersecurity Hardening*)
+- **Verifikasi CAPTCHA Anti-Bot & Anti-Non-Organic User:**
+  - Dilengkapi fitur CAPTCHA visual terdistorsi (SVG dengan derau garis, titik *noise*, dan rotasi huruf) pada **Halaman Login** dan **Pendaftaran Akun Baru**.
+  - Kode tantangan bersifat *Single-Use* (sekali pakai langsung dihapus dari memori server) dan memiliki masa aktif kedaluwarsa maksimal 5 menit untuk mencegah *replay attack* atau *brute force*.
+  - Dilengkapi mekanisme perangkap *Honeypot field* yang tak terlihat oleh manusia, sehingga jika bot/skrip otomatis mengisi formulir, pendaftaran atau login langsung dibatalkan secara otomatis.
 - **Batas Waktu Sesi 30 Menit (*30-Minute Session Idle Timeout*):** Sesi login pada mode Admin, Dosen, dan Mahasiswa maupun sesi pengisian form dibatasi maksimal **30 menit**. Jika pengguna tidak aktif selama lebih dari 30 menit, sesi di sisi server dan *browser* otomatis berakhir, seluruh form dibersihkan, dan pengguna dikembalikan ke halaman login.
 - **Anti-Session Injection, Session Fixation & Session Hijacking:**
   - *Server-Side Active Session Registry* dengan ID sesi kriptografis (`jti` UUID) dan verifikasi tanda tangan HMAC-SHA256 secara *timing-safe* (`crypto.timingSafeEqual`).
