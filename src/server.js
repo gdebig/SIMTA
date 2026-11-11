@@ -38,7 +38,7 @@ async function bootstrap() {
 
   const server = app.listen(PORT, () => {
     console.log(`=============================================================`);
-    console.log(`  SIMTA - Sistem Informasi Manajemen Tugas Akhir (DTE UI)`);
+    console.log(`  SIMTA - Sistem Informasi Manajemen Tugas Akhir`);
     console.log(`  Server berjalan di: http://localhost:${PORT}`);
     console.log(`=============================================================`);
   });

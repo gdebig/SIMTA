@@ -24,6 +24,7 @@ const state = {
   token: sessionStorage.getItem('simta_token') || localStorage.getItem('simta_token') || null,
   lastActivityAt: Number(sessionStorage.getItem('simta_last_activity')) || Date.now(),
   user: null,
+  settings: null,
   activeViewRole: null,
   users: [],
   allDosen: [],
@@ -274,6 +275,80 @@ async function loadCaptcha(target = 'login') {
   } catch {
     // Abaikan jika gagal memuat captcha sementara
   }
+}
+
+// Muat dan terapkan konfigurasi website dinamis dari database (app_settings)
+async function loadAppSettings() {
+  try {
+    const res = await fetch('/api/settings', { cache: 'no-store' });
+    if (!res.ok) return;
+    const settings = await res.json();
+    state.settings = settings;
+
+    // Terapkan ke elemen halaman
+    const appName = settings.app_name || 'SIMTA';
+    const appSubtitle = settings.app_subtitle || 'Sistem Informasi Manajemen Tugas Akhir (S1 • S2 • S3)';
+    const footerText = settings.footer_text || 'Sistem Informasi Manajemen Tugas Akhir (SIMTA)';
+
+    const brandTitleEl = document.getElementById('navbarBrandTitle');
+    if (brandTitleEl) brandTitleEl.textContent = appName;
+
+    const brandSubEl = document.getElementById('navbarBrandSubtitle');
+    if (brandSubEl) brandSubEl.textContent = appSubtitle;
+
+    const pageTitleEl = document.getElementById('htmlPageTitle');
+    if (pageTitleEl) pageTitleEl.textContent = `${appName} - ${appSubtitle}`;
+
+    const footerBrandEl = document.getElementById('footerBrandLabel');
+    if (footerBrandEl) footerBrandEl.textContent = footerText;
+
+    // Terapkan favicon dinamis
+    const faviconEl = document.getElementById('dynamicFavicon');
+    const previewEl = document.getElementById('currentFaviconPreview');
+    const pathTextEl = document.getElementById('currentFaviconPathText');
+
+    const faviconHref = settings.favicon_path ? `${settings.favicon_path}?t=${Date.now()}` : '/favicon.ico';
+    if (faviconEl) faviconEl.href = faviconHref;
+    if (previewEl) previewEl.src = faviconHref;
+    if (pathTextEl) pathTextEl.textContent = settings.favicon_path || '/favicon.ico (default)';
+
+    // Isi ke dalam form panel pengaturan jika elemen form tersedia
+    const inputName = document.getElementById('settingAppName');
+    const inputSub = document.getElementById('settingAppSubtitle');
+    const inputFooter = document.getElementById('settingFooterText');
+    const privacyEditor = document.getElementById('settingPrivacyEditor');
+    const disclaimerEditor = document.getElementById('settingDisclaimerEditor');
+
+    if (inputName) inputName.value = appName;
+    if (inputSub) inputSub.value = appSubtitle;
+    if (inputFooter) inputFooter.value = footerText;
+    if (privacyEditor) privacyEditor.innerHTML = settings.privacy_policy_html || '';
+    if (disclaimerEditor) disclaimerEditor.innerHTML = settings.disclaimer_html || '';
+  } catch (err) {
+    console.warn('Gagal memuat konfigurasi website:', err.message);
+  }
+}
+
+// Buka modal klausul hukum (Privacy Policy atau Disclaimer)
+function openLegalModal(type = 'privacy') {
+  const modal = document.getElementById('legalModalOverlay');
+  const title = document.getElementById('legalModalTitle');
+  const body = document.getElementById('legalModalBody');
+  if (!modal || !title || !body) return;
+
+  const settings = state.settings || {};
+  if (type === 'disclaimer') {
+    title.textContent = 'Penyangkalan (Disclaimer)';
+    body.innerHTML =
+      settings.disclaimer_html ||
+      '<h3>Penyangkalan (Disclaimer)</h3><p>Informasi dan dokumen yang diunggah ke dalam sistem ini merupakan dokumen akademik resmi. Pengguna bertanggung jawab penuh atas keaslian dokumen dan laporan yang diunggah ke dalam portal ini.</p>';
+  } else {
+    title.textContent = 'Kebijakan Privasi (Privacy Policy)';
+    body.innerHTML =
+      settings.privacy_policy_html ||
+      '<h3>Kebijakan Privasi (Privacy Policy)</h3><p>Website SIMTA ini digunakan secara khusus untuk keperluan pencatatan dan evaluasi kemajuan Tugas Akhir. Seluruh data identitas pengguna, laporan kemajuan, dan dokumen lampiran disimpan dan dilindungi secara aman serta hanya dapat diakses oleh pihak yang berwenang.</p>';
+  }
+  modal.classList.remove('hidden');
 }
 
 // 1. Muat Daftar Dosen Publik untuk Form Registrasi Mandiri
@@ -1297,12 +1372,99 @@ async function loadMahasiswaReports() {
 document.addEventListener('DOMContentLoaded', async () => {
   initIdleSessionWatchdog();
   await Promise.all([
+    loadAppSettings(),
     loadPublicDosenForRegistration(),
     loadCaptcha('login'),
     loadCaptcha('register')
   ]);
   initWysiwygToolbars();
   initSandbox();
+
+  // Listener Modal Privacy Policy & Disclaimer pada footer
+  document.getElementById('btnOpenPrivacyModal')?.addEventListener('click', () => {
+    openLegalModal('privacy');
+  });
+  document.getElementById('btnOpenDisclaimerModal')?.addEventListener('click', () => {
+    openLegalModal('disclaimer');
+  });
+  document.getElementById('btnCloseLegalModal')?.addEventListener('click', () => {
+    document.getElementById('legalModalOverlay')?.classList.add('hidden');
+  });
+  document.getElementById('legalModalOverlay')?.addEventListener('click', (e) => {
+    if (e.target.id === 'legalModalOverlay') {
+      document.getElementById('legalModalOverlay').classList.add('hidden');
+    }
+  });
+
+  // Tombol Buka & Tutup Panel Pengaturan Website (Mode Admin)
+  document.getElementById('btnOpenAppSettings')?.addEventListener('click', () => {
+    loadAppSettings();
+    document.getElementById('appSettingsCard')?.classList.remove('hidden');
+    document.getElementById('appSettingsCard')?.scrollIntoView({ behavior: 'smooth' });
+  });
+  document.getElementById('btnCloseAppSettings')?.addEventListener('click', () => {
+    document.getElementById('appSettingsCard')?.classList.add('hidden');
+  });
+
+  // Form Simpan Teks Pengaturan Website
+  document.getElementById('settingsGeneralForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const app_name = document.getElementById('settingAppName').value.trim();
+    const app_subtitle = document.getElementById('settingAppSubtitle').value.trim();
+    const footer_text = document.getElementById('settingFooterText').value.trim();
+    const privacy_policy_html = document.getElementById('settingPrivacyEditor').innerHTML.trim();
+    const disclaimer_html = document.getElementById('settingDisclaimerEditor').innerHTML.trim();
+
+    try {
+      const res = await apiFetch('/api/settings', {
+        method: 'PUT',
+        body: JSON.stringify({
+          app_name,
+          app_subtitle,
+          footer_text,
+          privacy_policy_html,
+          disclaimer_html
+        })
+      });
+      showAlert(res.message, 'success');
+      await loadAppSettings();
+      if (state.activeViewRole === 'ADMIN') loadAdminLogs();
+    } catch (err) {
+      showAlert(err.message, 'error');
+    }
+  });
+
+  // Form Upload Icon Website (*.ico)
+  document.getElementById('settingsFaviconForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fileInput = document.getElementById('settingFaviconFile');
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) {
+      showAlert('Pilih berkas *.ico terlebih dahulu.', 'error');
+      return;
+    }
+
+    if (!file.name.toLowerCase().endsWith('.ico')) {
+      showAlert('Berkas icon harus berekstensi *.ico', 'error');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('favicon', file);
+
+    try {
+      const res = await apiFetch('/api/settings/favicon', {
+        method: 'POST',
+        body: formData
+      });
+      showAlert(res.message, 'success');
+      fileInput.value = '';
+      await loadAppSettings();
+      if (state.activeViewRole === 'ADMIN') loadAdminLogs();
+    } catch (err) {
+      showAlert(err.message, 'error');
+    }
+  });
 
   // Tombol muat ulang kode CAPTCHA pada halaman Login dan Pendaftaran Akun Baru
   document.getElementById('btnRefreshLoginCaptcha')?.addEventListener('click', () => {
@@ -1844,6 +2006,16 @@ function enterAuthenticatedState() {
   const userChip = document.getElementById('userChip');
   userChip.classList.remove('hidden');
   document.getElementById('currentUserName').textContent = `${state.user.name} (${state.user.roles.join(' + ')})`;
+
+  // Tampilkan tombol Pengaturan Website khusus akun dengan role ADMIN
+  const btnSettings = document.getElementById('btnOpenAppSettings');
+  if (btnSettings) {
+    if ((state.user.roles || []).includes('ADMIN')) {
+      btnSettings.classList.remove('hidden');
+    } else {
+      btnSettings.classList.add('hidden');
+    }
+  }
 
   // Jika Admin pertama kali login menggunakan initial/general password, wajib ubah password terlebih dahulu
   if (state.user.must_change_password) {

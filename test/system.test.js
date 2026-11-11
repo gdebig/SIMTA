@@ -900,7 +900,7 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
       },
       body: JSON.stringify({
         nip_or_npm: DEFAULT_ADMIN.nip,
-        name: 'Administrator Utama DTE UI',
+        name: 'Administrator Utama SIMTA',
         email: DEFAULT_ADMIN.email,
         current_password: DEFAULT_ADMIN.password,
         new_password: newAdminPass
@@ -909,7 +909,7 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
     assert.strictEqual(changeAdminPassRes.status, 200);
     const updatedAdminData = await changeAdminPassRes.json();
     assert.strictEqual(updatedAdminData.user.must_change_password, false);
-    assert.strictEqual(updatedAdminData.user.name, 'Administrator Utama DTE UI');
+    assert.strictEqual(updatedAdminData.user.name, 'Administrator Utama SIMTA');
 
     // 5. Dosen dan Mahasiswa juga dapat mengedit profil dan password masing-masing melalui PUT /api/profile
     const mhsProfileRes = await fetch(`${baseUrl}/api/profile`, {
@@ -933,5 +933,112 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
     const mhsProfileData = await mhsProfileRes.json();
     assert.strictEqual(mhsProfileData.user.name, 'Dimas Pratama, S.T.');
     assert.ok(mhsProfileData.user.mahasiswa_profile.thesis_title.includes('Generasi Baru'));
+  });
+
+  test('Mode Admin: Pengaturan Website Dinamis (Nama Sistem, Footer, Privacy Policy, Disclaimer & Upload Icon *.ico)', async () => {
+    // 1. Endpoint publik GET /api/settings mengembalikan data pengaturan website
+    const publicSettingsRes = await fetch(`${baseUrl}/api/settings`);
+    assert.strictEqual(publicSettingsRes.status, 200);
+    const initialSettings = await publicSettingsRes.json();
+    assert.ok(initialSettings.app_name);
+    assert.ok(initialSettings.footer_text);
+
+    // 2. Akses PUT /api/settings tanpa token Admin ditolak (401/403)
+    const unauthorizedRes = await fetch(`${baseUrl}/api/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app_name: 'Hacked SIMTA' })
+    });
+    assert.strictEqual(unauthorizedRes.status, 401);
+
+    // Login akun mahasiswa segar untuk menguji hak akses RBAC requireRole('ADMIN')
+    const freshMhsCap = await issueTestCaptcha();
+    const freshMhsLogin = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        identifier: 'dimas.pratama@ui.ac.id',
+        password: 'mhsBaru123',
+        ...freshMhsCap
+      })
+    });
+    assert.strictEqual(freshMhsLogin.status, 200);
+    const { token: freshMhsToken } = await freshMhsLogin.json();
+
+    const mhsForbiddenRes = await fetch(`${baseUrl}/api/settings`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${freshMhsToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ app_name: 'Hacked SIMTA' })
+    });
+    assert.strictEqual(mhsForbiddenRes.status, 403);
+
+    // 3. Admin berhasil memperbarui nama sistem, label footer, privacy policy, dan disclaimer
+    const updateSettingsRes = await fetch(`${baseUrl}/api/settings`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        app_name: 'SIMTA PORTAL',
+        app_subtitle: 'Sistem Informasi Manajemen Tugas Akhir Terpadu',
+        footer_text: 'Sistem Informasi Manajemen Tugas Akhir (SIMTA) • Hak Cipta Dilindungi',
+        privacy_policy_html: '<p>Kebijakan Privasi Baru SIMTA</p>',
+        disclaimer_html: '<p>Disclaimer Resmi SIMTA</p>'
+      })
+    });
+    assert.strictEqual(updateSettingsRes.status, 200);
+    const updatedData = await updateSettingsRes.json();
+    assert.strictEqual(updatedData.settings.app_name, 'SIMTA PORTAL');
+    assert.strictEqual(updatedData.settings.app_subtitle, 'Sistem Informasi Manajemen Tugas Akhir Terpadu');
+    assert.ok(updatedData.settings.privacy_policy_html.includes('Kebijakan Privasi Baru'));
+
+    // 4. Admin mencoba mengunggah file favicon dengan ekstensi salah (bukan .ico) -> harus ditolak
+    const badIcoForm = new FormData();
+    badIcoForm.append(
+      'favicon',
+      new Blob(['fake image data'], { type: 'image/png' }),
+      'icon.png'
+    );
+    const badIcoRes = await fetch(`${baseUrl}/api/settings/favicon`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: badIcoForm
+    });
+    assert.strictEqual(badIcoRes.status, 400);
+
+    // 5. Admin berhasil mengunggah berkas *.ico valid
+    // ICO header magic bytes: 00 00 01 00 (image/x-icon)
+    const validIcoBytes = Buffer.from([0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x10, 0x10]);
+    const icoForm = new FormData();
+    icoForm.append(
+      'favicon',
+      new Blob([validIcoBytes], { type: 'image/x-icon' }),
+      'custom-favicon.ico'
+    );
+
+    const uploadIcoRes = await fetch(`${baseUrl}/api/settings/favicon`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: icoForm
+    });
+    assert.strictEqual(uploadIcoRes.status, 200);
+    const uploadIcoData = await uploadIcoRes.json();
+    assert.ok(uploadIcoData.favicon_path.endsWith('.ico'));
+
+    // 6. Verifikasi log aktivitas mencatat UPDATE_SETTINGS dan UPDATE_FAVICON tanpa frasa departemen lama
+    const logsRes = await fetch(`${baseUrl}/api/logs?mode=ADMIN`, {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    assert.strictEqual(logsRes.status, 200);
+    const logs = await logsRes.json();
+    const settingsLog = logs.find((l) => l.action_type === 'UPDATE_SETTINGS');
+    const faviconLog = logs.find((l) => l.action_type === 'UPDATE_FAVICON');
+    assert.ok(settingsLog, 'Log UPDATE_SETTINGS harus tercatat');
+    assert.ok(faviconLog, 'Log UPDATE_FAVICON harus tercatat');
+    assert.ok(!settingsLog.description.includes('Departemen Teknik Elektro'));
   });
 });

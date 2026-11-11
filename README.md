@@ -1,5 +1,4 @@
 # SIMTA — Sistem Informasi Manajemen Tugas Akhir
-**Departemen Teknik Elektro, Fakultas Teknik Universitas Indonesia (DTE FTUI)**
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.x-339933?logo=node.js)](https://nodejs.org/)
@@ -16,16 +15,22 @@
 - **Isolasi Role `MAHASISWA`:** Akun mahasiswa diisolasi secara ketat dan tidak dapat digabungkan dengan role `ADMIN` maupun `DOSEN`.
 - **Pendaftaran Akun Mandiri (*Self-Registration*) & Approval Admin:** Mahasiswa dan Dosen dapat mendaftarkan akunnya sendiri dari halaman awal. Akun baru berstatus `PENDING` dan baru dapat digunakan login setelah disetujui (*Approve*) oleh Admin.
 
-### 2. Mode Pengguna
+### 2. Mode Pengguna & Pengaturan Website
+- **Pengaturan Website Dinamis (Khusus Mode Admin):**
+  - Mengubah **Nama Sistem Informasi** dan **Subtitle / Kepanjangan** yang tampil di bagian *navbar* dan *title* tab peramban secara *real-time*.
+  - Mengubah **Label Footer** serta mengelola konten **Kebijakan Privasi (Privacy Policy)** dan **Penyangkalan (Disclaimer)** melalui *HTML Rich Text Editor*.
+  - Tautan klausul **Kebijakan Privasi** dan **Penyangkalan** muncul langsung di samping teks footer dan dapat dibuka oleh siapa saja dalam bentuk modal *popup*.
+  - Mengubah **Icon Website (*.ico)** dengan mengunggah berkas `*.ico` langsung dari Panel Administrator.
+  - Seluruh konfigurasi disimpan secara persisten di tabel database `app_settings`.
 - **Pengaturan Profil & Password Mandiri (Seluruh Role):**
   - Setiap pengguna (**Admin**, **Dosen**, dan **Mahasiswa**) memiliki menu **👤 Profil & Password** di *navbar* untuk memperbarui profil dan mengganti kata sandi masing-masing.
   - **Wajib Ubah Initial Password Admin:** Saat aplikasi baru diinstal dan Admin login pertama kali menggunakan *initial/general password*, sistem otomatis meminta Admin mengubah *password* awal tersebut sebelum dapat mengoperasikan website.
 - **Mode Administrator (`ADMIN`):**
   - Mengelola seluruh akun pengguna (Tambah, Ubah, Hapus, dan Setujui pendaftaran mandiri).
-  - melakukan pencarian berdasarkan **nama mahasiswa/pengguna** maupun **judul tugas akhir**.
+  - Melakukan pencarian berdasarkan **nama mahasiswa/pengguna** maupun **judul tugas akhir**.
   - Memantau status keaktifan Dosen/Admin (`Aktif` / `Tidak Aktif`) serta status bimbingan Mahasiswa (`Sedang Dalam Bimbingan`, `Sudah Lulus`, `Tidak Selesai`).
   - Mengklik nama mahasiswa untuk meninjau riwayat laporan kemajuan, lampiran berkas, dan komentar evaluasi dosen pembimbing.
-  - Melihat seluruh **Log Aktivitas** sistem dilengkapi fitur pencarian pengguna dan *pagination* dinamis (5, 10, 25, 50 baris).
+  - Melihat seluruh **Log Aktivitas** sistem dilengkapi fitur pencarian pengguna dan *pagination* dinamis (5, 10, 25, 50 baris). Log secara otomatis dibersihkan dari frasa instansi/departemen lama.
 - **Mode Dosen Pembimbing (`DOSEN`):**
   - Melihat daftar mahasiswa bimbingan beserta tahun ajaran mulai, jenjang studi (`S1`/`S2`/`S3`), judul tugas akhir, dan status bimbingan.
   - Melakukan pencarian mahasiswa maupun laporan berdasarkan **nama mahasiswa** atau **judul tugas akhir**.
@@ -255,11 +260,35 @@ ADMIN_PASSWORD=GANTI_PASSWORD_ADMIN_YANG_KUAT
 npm ci --omit=dev
 ```
 
-#### Langkah 4.3 — Inisialisasi Skema Database & Akun Admin
+#### Langkah 4.3 — Inisialisasi Skema Database, Upgrade & Akun Admin
 - Jika Anda menggunakan **PostgreSQL Native/Eksternal**, buat database terlebih dahulu (`CREATE DATABASE simta_db;`), lalu jalankan:
   ```bash
   npm run db:init
   npm run db:seed
+  ```
+- **Petunjuk Upgrade / Alter Database yang Sudah Berjalan:**
+  Jika Anda meng-upgrade database dari versi sebelumnya (agar mendukung fitur Pengaturan Website dinamis, klausul legal, dan icon `app_settings` tanpa menghapus data pengguna yang ada):
+  ```bash
+  # Cara 1: Cukup jalankan kembali inisialisasi skema (aman dan idempotent)
+  npm run db:init
+
+  # Cara 2: Atau jalankan script ALTER / CREATE TABLE via psql di server:
+  psql -d simta_db -c "
+  CREATE TABLE IF NOT EXISTS app_settings (
+      id INT PRIMARY KEY DEFAULT 1,
+      app_name VARCHAR(255) NOT NULL DEFAULT 'SIMTA',
+      app_subtitle VARCHAR(255) NOT NULL DEFAULT 'Sistem Informasi Manajemen Tugas Akhir (S1 • S2 • S3)',
+      footer_text TEXT NOT NULL DEFAULT 'Sistem Informasi Manajemen Tugas Akhir (SIMTA)',
+      privacy_policy_html TEXT DEFAULT '<h3>Kebijakan Privasi</h3><p>Website SIMTA digunakan secara khusus untuk evaluasi Tugas Akhir.</p>',
+      disclaimer_html TEXT DEFAULT '<h3>Penyangkalan</h3><p>Informasi dan dokumen yang diunggah merupakan dokumen akademik resmi.</p>',
+      favicon_path VARCHAR(512) DEFAULT NULL,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT single_row_app_settings CHECK (id = 1)
+  );
+  INSERT INTO app_settings (id, app_name, app_subtitle, footer_text)
+  VALUES (1, 'SIMTA', 'Sistem Informasi Manajemen Tugas Akhir (S1 • S2 • S3)', 'Sistem Informasi Manajemen Tugas Akhir (SIMTA)')
+  ON CONFLICT (id) DO NOTHING;
+  "
   ```
 - Jika Anda ingin **mengosongkan seluruh isi database** (menghapus semua data lama & berkas di `uploads/`) dan **hanya menyisakan 1 akun Admin**:
   ```bash

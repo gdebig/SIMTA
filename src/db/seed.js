@@ -7,7 +7,7 @@ const { validateUserRoles } = require('../utils/validators');
 
 const DEFAULT_ADMIN = {
   nip: process.env.ADMIN_NIP || '198911032015042002',
-  name: process.env.ADMIN_NAME || 'Administrator SIMTA DTE UI',
+  name: process.env.ADMIN_NAME || 'Administrator SIMTA',
   email: process.env.ADMIN_EMAIL || 'admin.dte@ui.ac.id',
   password: process.env.ADMIN_PASSWORD || 'simta123'
 };

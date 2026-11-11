@@ -126,3 +126,28 @@ CREATE TABLE IF NOT EXISTS activity_logs (
     target_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Tabel Konfigurasi Website Dinamis (App Settings)
+CREATE TABLE IF NOT EXISTS app_settings (
+    id INT PRIMARY KEY DEFAULT 1,
+    app_name VARCHAR(255) NOT NULL DEFAULT 'SIMTA',
+    app_subtitle VARCHAR(255) NOT NULL DEFAULT 'Sistem Informasi Manajemen Tugas Akhir (S1 • S2 • S3)',
+    footer_text TEXT NOT NULL DEFAULT 'Sistem Informasi Manajemen Tugas Akhir (SIMTA)',
+    privacy_policy_html TEXT DEFAULT '<h3>Kebijakan Privasi (Privacy Policy)</h3><p>Website SIMTA ini digunakan secara khusus untuk keperluan pencatatan dan evaluasi kemajuan Tugas Akhir. Seluruh data identitas pengguna, laporan kemajuan, dan dokumen lampiran disimpan dan dilindungi secara aman serta hanya dapat diakses oleh pihak yang berwenang (Administrator, Dosen Pembimbing, dan Mahasiswa bersangkutan).</p>',
+    disclaimer_html TEXT DEFAULT '<h3>Penyangkalan (Disclaimer)</h3><p>Informasi dan dokumen yang diunggah ke dalam sistem ini merupakan dokumen akademik resmi. Pengguna bertanggung jawab penuh atas keaslian dokumen dan laporan yang diunggah ke dalam portal ini.</p>',
+    favicon_path VARCHAR(512) DEFAULT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT single_row_app_settings CHECK (id = 1)
+);
+
+INSERT INTO app_settings (id, app_name, app_subtitle, footer_text, privacy_policy_html, disclaimer_html, favicon_path)
+VALUES (
+    1,
+    'SIMTA',
+    'Sistem Informasi Manajemen Tugas Akhir (S1 • S2 • S3)',
+    'Sistem Informasi Manajemen Tugas Akhir (SIMTA)',
+    '<h3>Kebijakan Privasi (Privacy Policy)</h3><p>Website SIMTA ini digunakan secara khusus untuk keperluan pencatatan dan evaluasi kemajuan Tugas Akhir. Seluruh data identitas pengguna, laporan kemajuan, dan dokumen lampiran disimpan dan dilindungi secara aman serta hanya dapat diakses oleh pihak yang berwenang (Administrator, Dosen Pembimbing, dan Mahasiswa bersangkutan).</p>',
+    '<h3>Penyangkalan (Disclaimer)</h3><p>Informasi dan dokumen yang diunggah ke dalam sistem ini merupakan dokumen akademik resmi. Pengguna bertanggung jawab penuh atas keaslian dokumen dan laporan yang diunggah ke dalam portal ini.</p>',
+    NULL
+)
+ON CONFLICT (id) DO NOTHING;

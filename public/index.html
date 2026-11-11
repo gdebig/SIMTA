@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SIMTA - Sistem Informasi Manajemen Tugas Akhir | DTE UI</title>
+  <title id="htmlPageTitle">SIMTA - Sistem Informasi Manajemen Tugas Akhir</title>
+  <link rel="icon" id="dynamicFavicon" href="/favicon.ico" type="image/x-icon" />
   <link rel="stylesheet" href="/css/styles.css" />
 </head>
 <body>
@@ -11,10 +12,10 @@
 
   <header class="navbar">
     <div class="brand">
-      <div class="brand-crest">UI</div>
+      <div class="brand-crest" id="navbarBrandCrest">UI</div>
       <div class="brand-text">
-        <h1>SIMTA — Departemen Teknik Elektro</h1>
-        <p>Sistem Informasi Manajemen Tugas Akhir (S1 • S2 • S3)</p>
+        <h1 id="navbarBrandTitle">SIMTA</h1>
+        <p id="navbarBrandSubtitle">Sistem Informasi Manajemen Tugas Akhir (S1 • S2 • S3)</p>
       </div>
     </div>
 
@@ -27,6 +28,9 @@
 
       <div id="userChip" class="hidden" style="display:flex;align-items:center;gap:0.6rem;">
         <span id="currentUserName" style="font-size:0.85rem;font-weight:600;"></span>
+        <button class="btn btn-yellow btn-sm hidden" id="btnOpenAppSettings" type="button">
+          ⚙️ Pengaturan Website
+        </button>
         <button class="btn btn-yellow btn-sm" id="btnOpenProfile" type="button">
           👤 Profil &amp; Password
         </button>
@@ -256,10 +260,10 @@
 
       <div class="card">
         <div class="card-header">
-          <div class="card-title">Panduan Portal SIMTA DTE UI</div>
+          <div class="card-title">Panduan Portal SIMTA</div>
         </div>
         <p style="font-size:0.86rem;color:var(--text-secondary);margin-bottom:0.85rem;line-height:1.6;">
-          Selamat datang di <strong>Sistem Informasi Manajemen Tugas Akhir (SIMTA)</strong> Departemen Teknik Elektro Universitas Indonesia untuk jenjang <strong>S1 (Skripsi)</strong>, <strong>S2 (Tesis)</strong>, dan <strong>S3 (Disertasi)</strong>.
+          Selamat datang di <strong>Sistem Informasi Manajemen Tugas Akhir (SIMTA)</strong> untuk jenjang <strong>S1 (Skripsi)</strong>, <strong>S2 (Tesis)</strong>, dan <strong>S3 (Disertasi)</strong>.
         </p>
         <div style="display:flex;flex-direction:column;gap:0.65rem;font-size:0.83rem;color:var(--text-primary);">
           <div style="padding:0.65rem 0.8rem;background:var(--surface-neutral);border-left:4px solid var(--navy-primary);border-radius:6px;">
@@ -280,6 +284,109 @@
 
     <!-- DASHBOARD UTAMA SETELAH LOGIN -->
     <section id="appSection" class="hidden">
+      <!-- PANEL PENGATURAN WEBSITE (KHUSUS MODE ADMIN) -->
+      <div id="appSettingsCard" class="card highlight-panel hidden" style="margin-bottom:1.5rem;">
+        <div class="card-header">
+          <div class="card-title">⚙️ Pengaturan Website, Tampilan &amp; Informasi Hukum (Mode Admin)</div>
+          <button type="button" class="btn btn-outline btn-sm" id="btnCloseAppSettings">
+            Tutup Panel Pengaturan
+          </button>
+        </div>
+
+        <div class="grid-2" style="align-items:start;gap:1.5rem;">
+          <!-- Form Teks Sistem Informasi & Footer -->
+          <div>
+            <h4 style="color:var(--navy-primary);margin-bottom:0.75rem;font-size:0.95rem;">
+              1. Nama Sistem &amp; Footer Website
+            </h4>
+            <form id="settingsGeneralForm">
+              <div class="form-group">
+                <label class="form-label" for="settingAppName">Nama Singkat Sistem Informasi</label>
+                <input type="text" id="settingAppName" class="form-control" placeholder="Contoh: SIMTA" required />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="settingAppSubtitle">Kepanjangan / Subtitle Sistem</label>
+                <input type="text" id="settingAppSubtitle" class="form-control" placeholder="Sistem Informasi Manajemen Tugas Akhir (S1 • S2 • S3)" required />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="settingFooterText">Label Teks Footer</label>
+                <input type="text" id="settingFooterText" class="form-control" placeholder="Sistem Informasi Manajemen Tugas Akhir (SIMTA)" required />
+                <p style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.25rem;">
+                  Teks ini tampil pada bagian bawah (footer) di seluruh halaman website.
+                </p>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Klausul Kebijakan Privasi (Privacy Policy) — HTML Editor</label>
+                <div class="wysiwyg-wrapper">
+                  <div class="wysiwyg-toolbar" data-target="settingPrivacyEditor">
+                    <button type="button" class="wysiwyg-btn" data-cmd="bold"><b>B</b></button>
+                    <button type="button" class="wysiwyg-btn" data-cmd="italic"><i>I</i></button>
+                    <button type="button" class="wysiwyg-btn" data-cmd="formatBlock" data-val="H3">H3</button>
+                    <button type="button" class="wysiwyg-btn" data-cmd="insertUnorderedList">• List</button>
+                  </div>
+                  <div id="settingPrivacyEditor" class="wysiwyg-editor compact" contenteditable="true"></div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Klausul Penyangkal (Disclaimer) — HTML Editor</label>
+                <div class="wysiwyg-wrapper">
+                  <div class="wysiwyg-toolbar" data-target="settingDisclaimerEditor">
+                    <button type="button" class="wysiwyg-btn" data-cmd="bold"><b>B</b></button>
+                    <button type="button" class="wysiwyg-btn" data-cmd="italic"><i>I</i></button>
+                    <button type="button" class="wysiwyg-btn" data-cmd="formatBlock" data-val="H3">H3</button>
+                    <button type="button" class="wysiwyg-btn" data-cmd="insertUnorderedList">• List</button>
+                  </div>
+                  <div id="settingDisclaimerEditor" class="wysiwyg-editor compact" contenteditable="true"></div>
+                </div>
+              </div>
+
+              <button type="submit" class="btn btn-primary" id="btnSaveAppSettings">
+                Simpan Konfigurasi Teks
+              </button>
+            </form>
+          </div>
+
+          <!-- Form Upload Icon Website (*.ico) -->
+          <div>
+            <h4 style="color:var(--navy-primary);margin-bottom:0.75rem;font-size:0.95rem;">
+              2. Ubah Icon Website (*.ico)
+            </h4>
+            <div style="background:var(--surface-neutral);padding:1rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:1rem;">
+              <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.8rem;">
+                <div style="width:48px;height:48px;background:#0F172A;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid #CBD5E1;">
+                  <img id="currentFaviconPreview" src="/favicon.ico" alt="Favicon Preview" style="width:32px;height:32px;object-fit:contain;" />
+                </div>
+                <div>
+                  <div style="font-weight:600;font-size:0.86rem;">Icon Website Saat Ini</div>
+                  <div id="currentFaviconPathText" style="font-size:0.78rem;color:var(--text-secondary);">/favicon.ico</div>
+                </div>
+              </div>
+              <form id="settingsFaviconForm">
+                <div class="form-group">
+                  <label class="form-label" for="settingFaviconFile">Pilih Berkas Icon Baru (*.ico)</label>
+                  <input type="file" id="settingFaviconFile" class="form-control" accept=".ico" required />
+                  <p style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.25rem;">
+                    Format berkas wajib <strong>.ico</strong> (misalnya 16x16, 32x32, atau 48x48 pixel, maksimal 2 MB).
+                  </p>
+                </div>
+                <button type="submit" class="btn btn-yellow btn-sm" id="btnUploadFavicon">
+                  📤 Unggah &amp; Terapkan Icon Baru
+                </button>
+              </form>
+            </div>
+
+            <div class="alert alert-info" style="font-size:0.82rem;line-height:1.5;">
+              <strong>ℹ️ Catatan Penyimpanan:</strong><br />
+              Seluruh konfigurasi nama sistem, subtitle, label footer, klausul hukum, serta path icon website disimpan di tabel database <code>app_settings</code> dan langsung aktif pada seluruh browser pengguna.
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- PANEL EDIT PROFIL & UBAH PASSWORD MANDIRI (ADMIN, DOSEN, MAHASISWA) -->
       <div id="profileSectionCard" class="card highlight-panel hidden" style="margin-bottom:1.5rem;">
         <div class="card-header">
@@ -792,8 +899,29 @@
   </main>
 
   <footer class="footer">
-    Sistem Informasi Manajemen Tugas Akhir (SIMTA) • Departemen Teknik Elektro Fakultas Teknik Universitas Indonesia
+    <div style="display:flex;align-items:center;justify-content:center;gap:1.25rem;flex-wrap:wrap;">
+      <span id="footerBrandLabel">Sistem Informasi Manajemen Tugas Akhir (SIMTA)</span>
+      <span style="color:#64748B;">•</span>
+      <button type="button" class="footer-legal-link" id="btnOpenPrivacyModal">
+        Kebijakan Privasi (Privacy Policy)
+      </button>
+      <span style="color:#64748B;">•</span>
+      <button type="button" class="footer-legal-link" id="btnOpenDisclaimerModal">
+        Penyangkalan (Disclaimer)
+      </button>
+    </div>
   </footer>
+
+  <!-- MODAL POPUP PRIVACY POLICY & DISCLAIMER -->
+  <div id="legalModalOverlay" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="card-header">
+        <div class="card-title" id="legalModalTitle">Informasi Hukum</div>
+        <button type="button" class="btn btn-outline btn-sm" id="btnCloseLegalModal">Tutup</button>
+      </div>
+      <div id="legalModalBody" style="font-size:0.88rem;color:var(--text-primary);line-height:1.6;max-height:60vh;overflow-y:auto;padding:0.5rem 0.2rem;"></div>
+    </div>
+  </div>
 
   <script src="/js/app.js"></script>
 </body>

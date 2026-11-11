@@ -384,6 +384,27 @@ function validateSafeUploadFiles(files, uploadDir) {
   return true;
 }
 
+/**
+ * Membersihkan frasa sensitif / spesifik instansi lama dari teks sebelum dicatat ke log:
+ * "Departemen Teknik Elektro Universitas Indonesia", "Departemen Teknik Elektro Fakultas Teknik Universitas Indonesia",
+ * "Departemen Teknik Elektro", "Fakultas Teknik Universitas Indonesia", "DTE UI", "FTUI".
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function stripDepartmentPhrases(text) {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    .replace(/Departemen\s+Teknik\s+Elektro\s+Fakultas\s+Teknik\s+Universitas\s+Indonesia/gi, '')
+    .replace(/Departemen\s+Teknik\s+Elektro\s+Universitas\s+Indonesia/gi, '')
+    .replace(/Departemen\s+Teknik\s+Elektro/gi, '')
+    .replace(/Fakultas\s+Teknik\s+Universitas\s+Indonesia/gi, '')
+    .replace(/\bDTE\s+UI\b/gi, '')
+    .replace(/\bFTUI\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 module.exports = {
   VALID_ROLES,
   VALID_DEGREES,
@@ -397,6 +418,7 @@ module.exports = {
   validateUserRoles,
   sanitizeEditorContent,
   sanitizePlainText,
+  stripDepartmentPhrases,
   validateFileSize,
   resolveSafeUploadPath,
   validateSafeUploadFiles

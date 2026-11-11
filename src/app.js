@@ -14,6 +14,7 @@ const {
   validateUserRoles,
   sanitizeEditorContent,
   sanitizePlainText,
+  stripDepartmentPhrases,
   validateFileSize,
   resolveSafeUploadPath,
   validateSafeUploadFiles
@@ -63,6 +64,22 @@ const upload = multer({
   fileFilter: (_req, file, cb) => {
     try {
       validateSafeUploadFiles([file], uploadDir);
+      cb(null, true);
+    } catch (err) {
+      cb(err);
+    }
+  }
+});
+
+const uploadFavicon = multer({
+  storage,
+  limits: { fileSize: 2 * 1024 * 1024 }, // Maksimal 2 MB untuk file favicon
+  fileFilter: (_req, file, cb) => {
+    try {
+      const ext = path.extname(file.originalname || '').toLowerCase();
+      if (ext !== '.ico') {
+        return cb(new Error('Berkas icon website harus berformat *.ico'));
+      }
       cb(null, true);
     } catch (err) {
       cb(err);
@@ -139,16 +156,19 @@ async function recordActivityLog(
 ) {
   try {
     const rolesStr = Array.isArray(actorRoles) ? actorRoles.join(', ') : String(actorRoles || '');
+    const cleanActorName = stripDepartmentPhrases(sanitizePlainText(actorName)) || 'Sistem';
+    const cleanDescription = stripDepartmentPhrases(sanitizePlainText(description));
+
     await queryRunner.query(
       `INSERT INTO activity_logs (user_id, actor_name, actor_identifier, actor_roles, action_type, description, target_user_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         isValidUuid(userId) ? userId : null,
-        sanitizePlainText(actorName) || 'Sistem',
+        cleanActorName,
         sanitizePlainText(actorIdentifier) || '-',
         sanitizePlainText(rolesStr),
         sanitizePlainText(actionType),
-        sanitizePlainText(description),
+        cleanDescription,
         isValidUuid(targetUserId) ? targetUserId : null
       ]
     );
@@ -201,6 +221,131 @@ function requireRole(...allowedRoles) {
     next();
   };
 }
+
+// Endpoint publik pengaturan website & tampilan sistem (Settings)
+app.get('/api/settings', async (_req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT app_name, app_subtitle, footer_text, privacy_policy_html, disclaimer_html, favicon_path, updated_at
+       FROM app_settings
+       WHERE id = 1`
+    );
+    if (result.rows.length === 0) {
+      return res.json({
+        app_name: 'SIMTA',
+        app_subtitle: 'Sistem Informasi Manajemen Tugas Akhir (S1 • S2 • S3)',
+        footer_text: 'Sistem Informasi Manajemen Tugas Akhir (SIMTA)',
+        privacy_policy_html: '<h3>Kebijakan Privasi (Privacy Policy)</h3><p>Website SIMTA ini digunakan secara khusus untuk keperluan pencatatan dan evaluasi kemajuan Tugas Akhir. Seluruh data identitas pengguna, laporan kemajuan, dan dokumen lampiran disimpan dan dilindungi secara aman serta hanya dapat diakses oleh pihak yang berwenang.</p>',
+        disclaimer_html: '<h3>Penyangkalan (Disclaimer)</h3><p>Informasi dan dokumen yang diunggah ke dalam sistem ini merupakan dokumen akademik resmi. Pengguna bertanggung jawab penuh atas keaslian dokumen dan laporan yang diunggah ke dalam portal ini.</p>',
+        favicon_path: null
+      });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: `Gagal memuat pengaturan website: ${err.message}` });
+  }
+});
+
+// Endpoint Mode Admin: Mengubah pengaturan website (nama sistem, subtitle, footer, privacy, disclaimer)
+app.put('/api/settings', authenticate, requireRole('ADMIN'), async (req, res) => {
+  const { app_name, app_subtitle, footer_text, privacy_policy_html, disclaimer_html } = req.body;
+
+  const cleanAppName = sanitizePlainText(app_name) || 'SIMTA';
+  const cleanAppSubtitle = sanitizePlainText(app_subtitle) || 'Sistem Informasi Manajemen Tugas Akhir (S1 • S2 • S3)';
+  const cleanFooterText = stripDepartmentPhrases(sanitizePlainText(footer_text)) || 'Sistem Informasi Manajemen Tugas Akhir (SIMTA)';
+  const cleanPrivacy = privacy_policy_html ? sanitizeEditorContent(privacy_policy_html) : '';
+  const cleanDisclaimer = disclaimer_html ? sanitizeEditorContent(disclaimer_html) : '';
+
+  try {
+    const result = await db.query(
+      `INSERT INTO app_settings (id, app_name, app_subtitle, footer_text, privacy_policy_html, disclaimer_html, updated_at)
+       VALUES (1, $1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+       ON CONFLICT (id) DO UPDATE
+       SET app_name = EXCLUDED.app_name,
+           app_subtitle = EXCLUDED.app_subtitle,
+           footer_text = EXCLUDED.footer_text,
+           privacy_policy_html = EXCLUDED.privacy_policy_html,
+           disclaimer_html = EXCLUDED.disclaimer_html,
+           updated_at = CURRENT_TIMESTAMP
+       RETURNING app_name, app_subtitle, footer_text, privacy_policy_html, disclaimer_html, favicon_path, updated_at`,
+      [cleanAppName, cleanAppSubtitle, cleanFooterText, cleanPrivacy, cleanDisclaimer]
+    );
+
+    await recordActivityLog({
+      userId: req.user.id,
+      actorName: req.user.name,
+      actorIdentifier: req.user.nip_or_npm,
+      actorRoles: req.user.roles,
+      actionType: 'UPDATE_SETTINGS',
+      description: `Admin memperbarui konfigurasi website: nama sistem (${cleanAppName}), label footer, privacy policy, dan disclaimer.`,
+      targetUserId: null
+    });
+
+    res.json({
+      message: 'Konfigurasi website berhasil disimpan.',
+      settings: result.rows[0]
+    });
+  } catch (err) {
+    res.status(500).json({ error: `Gagal menyimpan konfigurasi website: ${err.message}` });
+  }
+});
+
+// Endpoint Mode Admin: Mengubah icon website (*.ico)
+app.post('/api/settings/favicon', authenticate, requireRole('ADMIN'), (req, res) => {
+  uploadFavicon.single('favicon')(req, res, async (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'Berkas icon *.ico wajib diunggah.' });
+    }
+
+    try {
+      const ext = path.extname(req.file.originalname || '').toLowerCase();
+      if (ext !== '.ico') {
+        return res.status(400).json({ error: 'Berkas icon website harus berformat *.ico' });
+      }
+
+      const relativePath = `/uploads/${req.file.filename}`;
+
+      // Simpan icon baru ke direktori public/favicon.ico juga agar browser langsung memuatnya secara default
+      try {
+        const publicFaviconPath = path.resolve(__dirname, '../public/favicon.ico');
+        fs.copyFileSync(req.file.path, publicFaviconPath);
+      } catch (copyErr) {
+        console.warn('Gagal menyalin favicon ke public/favicon.ico:', copyErr.message);
+      }
+
+      const result = await db.query(
+        `INSERT INTO app_settings (id, favicon_path, updated_at)
+         VALUES (1, $1, CURRENT_TIMESTAMP)
+         ON CONFLICT (id) DO UPDATE
+         SET favicon_path = EXCLUDED.favicon_path,
+             updated_at = CURRENT_TIMESTAMP
+         RETURNING app_name, app_subtitle, footer_text, privacy_policy_html, disclaimer_html, favicon_path, updated_at`,
+        [relativePath]
+      );
+
+      await recordActivityLog({
+        userId: req.user.id,
+        actorName: req.user.name,
+        actorIdentifier: req.user.nip_or_npm,
+        actorRoles: req.user.roles,
+        actionType: 'UPDATE_FAVICON',
+        description: `Admin memperbarui icon website (*.ico) baru (${req.file.originalname}).`,
+        targetUserId: null
+      });
+
+      res.json({
+        message: 'Icon website (*.ico) berhasil diperbarui.',
+        favicon_path: relativePath,
+        settings: result.rows[0]
+      });
+    } catch (dbErr) {
+      res.status(500).json({ error: `Gagal memperbarui icon website: ${dbErr.message}` });
+    }
+  });
+});
 
 // Health check & status koneksi PostgreSQL
 app.get('/api/health', async (_req, res) => {
