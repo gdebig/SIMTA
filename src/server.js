@@ -36,12 +36,24 @@ async function bootstrap() {
     console.log(`Terhubung ke instance PostgreSQL aktif pada ${PGHOST}:${PGPORT}`);
   }
 
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`=============================================================`);
     console.log(`  SIMTA - Sistem Informasi Manajemen Tugas Akhir (DTE UI)`);
     console.log(`  Server berjalan di: http://localhost:${PORT}`);
     console.log(`=============================================================`);
   });
+
+  const shutdown = (signal) => {
+    console.log(`\nMenerima sinyal ${signal}. Menghentikan server SIMTA...`);
+    server.close(() => {
+      console.log('Server SIMTA berhasil dihentikan.');
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(0), 3000).unref();
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 bootstrap().catch((err) => {

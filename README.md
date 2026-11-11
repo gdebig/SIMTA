@@ -45,7 +45,7 @@
 - **Anti-Session Injection, Session Fixation & Session Hijacking:**
   - *Server-Side Active Session Registry* dengan ID sesi kriptografis (`jti` UUID) dan verifikasi tanda tangan HMAC-SHA256 secara *timing-safe* (`crypto.timingSafeEqual`).
   - Pemblokiran injeksi atribut sesi pada proses login (`sessionId`, `jti`, `roles`), pemblokiran header sesi palsu (`X-Session-Id`, `X-Authenticated-User`, `X-Forwarded-User`), pengikatan *fingerprint* `User-Agent` (mencegah pembajakan token lintas klien), serta pencabutan sesi instan (*session revocation*) saat *logout* atau saat akun dinonaktifkan/dihapus.
-- **Anti-XSS (*Cross-Site Scripting*):** Seluruh konten Rich Text HTML disanitasi di sisi server menggunakan *whitelist* tag aman (`sanitize-html`), dan *field* teks biasa dibersihkan dari injeksi tag HTML/script.
+- **Anti-XSS (*Cross-Site Scripting*):** Seluruh konten Rich Text HTML disanitasi di sisi server menggunakan *whitelist* tag aman bawaan (`src/utils/validators.js`), dan *field* teks biasa dibersihkan dari injeksi tag HTML/script.
 - **Anti-SQL Injection (SQLi):** Seluruh interaksi database menggunakan *parameterized queries* (`$1, $2, ...`) dan validasi format UUID ketat.
 - **Keamanan Unggahan Berkas & Anti-Path Traversal:**
   - *Whitelist* ekstensi dokumen akademik (`.pdf`, `.doc`, `.docx`, `.xls`, `.xlsx`, `.ppt`, `.pptx`, `.txt`, `.csv`, `.zip`, `.png`, `.jpg`, `.jpeg`).
@@ -104,15 +104,83 @@ Saat database diinisialisasi untuk pertama kali (atau setelah dijalankan `npm ru
 
 ---
 
+## Prasyarat Aplikasi, Library & Environment
+
+Sebelum menginstal dan menjalankan **SIMTA**, pastikan server atau komputer Anda memenuhi prasyarat lingkungan (*environment*) dan *library* berikut:
+
+### 1. Sistem Operasi & Utilitas Sistem
+- **Sistem Operasi:** Linux (Ubuntu 20.04 / 22.04 / 24.04 LTS, Debian 11/12, RHEL/Rocky Linux), macOS, atau Windows.
+- **Utilitas Sistem Linux (untuk script deploy otomatis):** `bash`, `curl`, `tar`, `xz-utils` (`xz`), `git`, dan `procps` (`pkill`).
+- **Instalasi Utilitas Dasar (Ubuntu/Debian):**
+  ```bash
+  sudo apt-get update && sudo apt-get install -y curl git xz-utils procps
+  ```
+
+### 2. Runtime Environment (Node.js & NPM)
+- **Node.js:** Versi **>= 18.0.0** (Sangat direkomendasikan **Node.js v20.x LTS**).
+  > **Penting:** Node.js versi lawas (seperti `v10.x` atau `v12.x` bawaan apt Ubuntu lama) **tidak didukung**. Jika server Anda masih menggunakan Node.js versi lama, jalankan script `./deploy-production.sh` (yang akan menginstal Node.js v20.18.0 LTS secara otomatis ke `/usr/local`), atau instal manual dengan perintah:
+  > ```bash
+  > curl -fsSL https://nodejs.org/dist/v20.18.0/node-v20.18.0-linux-x64.tar.xz -o /tmp/node.tar.xz
+  > sudo rm -rf /usr/local/lib/node_modules /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx
+  > sudo tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1
+  > hash -r
+  > node -v && npm -v
+  > ```
+- **NPM:** Versi **>= 9.0.0** (otomatis terinstal bersama bundel Node.js LTS).
+
+### 3. Database Engine (PostgreSQL)
+Aplikasi mendukung dua mode operasional database:
+- **Opsi A — PostgreSQL Server Eksternal / Native (Direkomendasikan untuk Production):**
+  - Mendukung **PostgreSQL versi 12, 13, 14, 15, hingga 16** yang berjalan pada port `5432`.
+  - Khusus untuk **PostgreSQL 12 ke bawah** (misalnya bawaan Ubuntu 20.04), pastikan paket `postgresql-contrib` terinstal agar ekstensi `pgcrypto` tersedia:
+    ```bash
+    sudo apt-get install -y postgresql postgresql-contrib
+    sudo -u postgres psql -d simta_db -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+    ```
+    *(File [`db/schema.sql`](./db/schema.sql) juga telah dilengkapi fungsi fallback `gen_random_uuid()` otomatis jika ekstensi belum aktif).*
+- **Opsi B — Built-in Embedded PostgreSQL 16:**
+  - Jika pada port `5432` belum ada layanan PostgreSQL aktif, `src/server.js` secara otomatis menyalakan *embedded PostgreSQL 16 wire-protocol server* yang menyimpan data secara persisten di direktori `./pgdata`.
+
+### 4. Library & Dependencies Node.js (`package.json`)
+Seluruh *library* aplikasi diinstal secara otomatis melalui `npm install` atau `npm ci --omit=dev`:
+
+| Nama Library | Versi | Fungsi dalam Aplikasi |
+| :--- | :--- | :--- |
+| `express` | `^4.19.2` | Framework HTTP REST API, routing, dan *static file server* frontend. |
+| `pg` | `^8.12.0` | Driver klien dan *connection pool* PostgreSQL untuk Node.js. |
+| `multer` | `^1.4.5-lts.1` | Middleware pemrosesan unggahan lampiran `multipart/form-data` (batas total 10 MB/laporan). |
+| `dotenv` | `^16.4.5` | Memuat konfigurasi variabel lingkungan dari file `.env` ke `process.env`. |
+| `cors` | `^2.8.5` | Middleware pengaturan kebijakan *Cross-Origin Resource Sharing* (CORS). |
+| `@electric-sql/pglite` | `^0.5.15` | Engine PostgreSQL 16 berbasis WebAssembly untuk mode *embedded* & pengujian terisolasi. |
+| `@electric-sql/pglite-socket` | `^0.2.18` | Penyedia *wire-protocol socket* TCP untuk *embedded* PostgreSQL. |
+| **Modul Bawaan Node.js** | *Built-in* | `crypto` (*scrypt* password hashing & HMAC-SHA256 session token), `zlib` (kompresi generator Excel `.xlsx`), `fs`, `path`, `net`. |
+
+### 5. Variabel Environment (`.env`) yang Dibutuhkan
+Aplikasi membaca konfigurasi dari file `.env` di direktori utama proyek:
+
+| Variabel `.env` | Wajib? | Nilai Default | Keterangan |
+| :--- | :---: | :--- | :--- |
+| `NODE_ENV` | Disarankan | `development` | Mode eksekusi aplikasi (`production` untuk server produksi). |
+| `PORT` | Opsional | `3000` | Port HTTP tempat `src/server.js` berjalan. |
+| `DATABASE_URL` | Ya (Prod) | `postgresql://postgres:postgres@localhost:5432/simta_db` | URI koneksi lengkap ke database PostgreSQL. |
+| `PGHOST` | Opsional | `127.0.0.1` | Host server PostgreSQL. |
+| `PGPORT` | Opsional | `5432` | Port TCP server PostgreSQL. |
+| `PGUSER` | Opsional | `postgres` | Nama pengguna (*username*) database PostgreSQL. |
+| `PGPASSWORD` | Ya (Prod) | `postgres` | Kata sandi database PostgreSQL. |
+| `PGDATABASE` | Opsional | `simta_db` | Nama database PostgreSQL untuk aplikasi SIMTA. |
+| `AUTH_SECRET` | **Wajib (Prod)** | *Dev fallback* | Kunci rahasia HMAC-SHA256 untuk tanda tangan token sesi (minimal 64 karakter acak). |
+| `ADMIN_NIP` | Opsional | `198911032015042002` | NIP akun Administrator awal saat `npm run db:seed` / `npm run db:reset`. |
+| `ADMIN_NAME` | Opsional | `Administrator SIMTA DTE UI` | Nama tampilan akun Administrator awal. |
+| `ADMIN_EMAIL` | Opsional | `admin.dte@ui.ac.id` | Email login akun Administrator awal. |
+| `ADMIN_PASSWORD` | Opsional | `simta123` | *Initial password* akun Administrator awal (wajib diubah saat login pertama). |
+
+---
+
 ## Tahap-Tahap Setup & Instalasi di Server Production
 
-### 1. Prasyarat Server (Prerequisites)
-- **Sistem Operasi:** Linux (Ubuntu 20.04/22.04/24.04 LTS, Debian, atau RHEL/Rocky Linux).
-- **Runtime:** [Node.js](https://nodejs.org/) versi **18.x LTS** atau **20.x LTS** beserta `npm`.
-- **Database:**
-  - **Opsi A (PostgreSQL Server Eksternal / Native):** PostgreSQL >= 14 yang berjalan pada port `5432`.
-  - **Opsi B (Built-in Embedded PostgreSQL):** Jika di server belum terinstal layanan PostgreSQL eksternal, aplikasi secara otomatis menyalakan *embedded PostgreSQL 16 wire-protocol server* yang menyimpan data persisten di folder `./pgdata`.
-- **Process Manager (Disarankan):** `pm2` (`npm install -g pm2`) dan web server *reverse proxy* seperti **Nginx** atau **Caddy** untuk HTTPS/SSL.
+### 1. Prasyarat Process Manager & Reverse Proxy (Opsional untuk Production)
+- **Process Manager:** `pm2` (`sudo npm install -g pm2`) untuk menjaga proses `src/server.js` tetap berjalan di latar belakang (*daemon*) dan otomatis menyala saat server *reboot*.
+- **Web Server / Reverse Proxy:** **Nginx** atau **Caddy** untuk mengarahkan domain kampus dan menangani sertifikat HTTPS/SSL.
 
 ---
 
@@ -194,7 +262,7 @@ npm ci --omit=dev
   npm run db:reset
   ```
 
-#### Langkah 4.4 — Menjalankan Server Aplikasi
+#### Langkah 4.4 — Menjalankan, Menghentikan, dan Merestart Server Aplikasi (`src/server.js`)
 - **Menggunakan PM2 (Direkomendasikan untuk Production):**
   ```bash
   npm install -g pm2
@@ -202,9 +270,27 @@ npm ci --omit=dev
   pm2 save
   pm2 startup
   ```
-- **Menjalankan Langsung dengan Node.js:**
+- **Menjalankan Langsung dengan NPM (`src/server.js`):**
   ```bash
+  # Mode standar
+  npm start
+
+  # Mode Production
   npm run start:prod
+  ```
+- **Menghentikan Server (`src/server.js`):**
+  ```bash
+  npm stop
+  # atau: npm run stop
+  ```
+- **Merestart Server (`src/server.js`):**
+  ```bash
+  # Restart mode standar (otomatis mendeteksi PM2 atau proses node src/server.js)
+  npm restart
+  # atau: npm run restart
+
+  # Restart mode Production (memuat ulang variabel .env)
+  npm run restart:prod
   ```
 
 Aplikasi akan aktif dan mendengarkan pada `http://localhost:3000`.
@@ -246,12 +332,15 @@ sudo certbot --nginx -d simta.ee.ui.ac.id
 
 | Perintah | Deskripsi |
 | :--- | :--- |
-| `npm start` | Menjalankan server aplikasi SIMTA (beserta PostgreSQL lokal jika port `5432` belum aktif). |
-| `npm run start:prod` | Menjalankan server dalam mode `NODE_ENV=production`. |
+| `npm start` | Menjalankan `src/server.js` (beserta PostgreSQL lokal jika port `5432` belum aktif). |
+| `npm run start:prod` | Menjalankan `src/server.js` dalam mode `NODE_ENV=production`. |
+| `npm stop` / `npm run stop` | Menghentikan proses `src/server.js` yang sedang berjalan (baik via PM2 maupun proses Node.js langsung). |
+| `npm restart` / `npm run restart` | Menghentikan dan menjalankan ulang (`restart`) `src/server.js`. |
+| `npm run restart:prod` | Merestart `src/server.js` dalam mode `NODE_ENV=production` serta memuat ulang konfigurasi `.env`. |
 | `npm run db:init` | Menerapkan skema tabel dan tipe enum dari [`db/schema.sql`](./db/schema.sql) ke PostgreSQL. |
 | `npm run db:seed` | Memastikan akun Administrator utama tersedia di database tanpa menghapus data yang ada. |
 | `npm run db:reset` | Mengosongkan seluruh tabel database & folder `uploads/`, lalu hanya menyisakan 1 akun Admin. |
-| `npm test` | Menjalankan 18 pengujian otomatis (RBAC, Anti-XSS, Anti-SQLi, Upload Security, & API E2E). |
+| `npm test` | Menjalankan 22 pengujian otomatis (RBAC, Anti-XSS, Anti-SQLi, Session Security, Upload Security, & API E2E). |
 
 ---
 
