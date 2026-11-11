@@ -1029,7 +1029,88 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
     const uploadIcoData = await uploadIcoRes.json();
     assert.ok(uploadIcoData.favicon_path.endsWith('.ico'));
 
-    // 6. Verifikasi log aktivitas mencatat UPDATE_SETTINGS dan UPDATE_FAVICON tanpa frasa departemen lama
+    // 6. Admin mengunggah file logo header aplikasi (*.png/*.jpg/*.jpeg/*.webp)
+    // Coba upload file bukan gambar (misal file .txt atau .sh) -> harus ditolak
+    const badLogoForm = new FormData();
+    badLogoForm.append(
+      'logo',
+      new Blob(['malicious payload script'], { type: 'text/plain' }),
+      'exploit.txt'
+    );
+    const badLogoRes = await fetch(`${baseUrl}/api/settings/logo`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: badLogoForm
+    });
+    assert.strictEqual(badLogoRes.status, 400);
+
+    // Coba upload file logo valid PNG (magic bytes: 89 50 4E 47)
+    const validPngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]);
+    const logoForm = new FormData();
+    logoForm.append(
+      'logo',
+      new Blob([validPngBytes], { type: 'image/png' }),
+      'simta-logo.png'
+    );
+    const uploadLogoRes = await fetch(`${baseUrl}/api/settings/logo`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: logoForm
+    });
+    assert.strictEqual(uploadLogoRes.status, 200);
+    const uploadLogoData = await uploadLogoRes.json();
+    assert.ok(uploadLogoData.logo_path.endsWith('.png'));
+
+    // 7. Sanitasi Keamanan: Serangan XSS Injection & SQL Injection pada pengaturan website
+    // a. XSS Injection pada field app_name, app_subtitle, footer_text dan HTML editor
+    const xssSettingsRes = await fetch(`${baseUrl}/api/settings`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        app_name: 'SIMTA <script>alert("xss")</script><img src=x onerror=alert(1)>',
+        app_subtitle: 'Sub <svg onload=alert(2)>Title',
+        footer_text: 'Footer <iframe src="evil.com"></iframe> Text',
+        privacy_policy_html: '<h3>Privacy</h3><script>fetch("evil.com")</script><p onclick=evil()>Aman</p>',
+        disclaimer_html: '<h3>Disclaimer</h3><a href="javascript:alert(1)">Link Bahaya</a><a href="https://ui.ac.id">Link Aman</a>'
+      })
+    });
+    assert.strictEqual(xssSettingsRes.status, 200);
+    const xssData = await xssSettingsRes.json();
+    // Pastikan tag script, svg, iframe, javascript: dan event handler berbahaya dibuang
+    assert.ok(!xssData.settings.app_name.includes('<script>'));
+    assert.ok(!xssData.settings.app_name.includes('onerror'));
+    assert.ok(!xssData.settings.app_subtitle.includes('<svg'));
+    assert.ok(!xssData.settings.footer_text.includes('<iframe'));
+    assert.ok(!xssData.settings.privacy_policy_html.includes('<script>'));
+    assert.ok(!xssData.settings.privacy_policy_html.includes('onclick'));
+    assert.ok(!xssData.settings.disclaimer_html.includes('javascript:'));
+    assert.ok(xssData.settings.disclaimer_html.includes('<a href="https://ui.ac.id">Link Aman</a>'));
+
+    // b. SQL Injection pada PUT /api/settings
+    const sqliSettingsRes = await fetch(`${baseUrl}/api/settings`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        app_name: "SIMTA'; DROP TABLE app_settings; --",
+        app_subtitle: "Subtitle' OR '1'='1",
+        footer_text: "Footer' UNION SELECT 1, 'hacked'--"
+      })
+    });
+    assert.strictEqual(sqliSettingsRes.status, 200);
+
+    // Pastikan tabel app_settings tetap utuh dan data tersimpan sebagai literal string aman
+    const verifyTableRes = await fetch(`${baseUrl}/api/settings`);
+    assert.strictEqual(verifyTableRes.status, 200);
+    const verifiedTable = await verifyTableRes.json();
+    assert.strictEqual(verifiedTable.app_name, "SIMTA'; DROP TABLE app_settings; --");
+
+    // 8. Verifikasi log aktivitas mencatat UPDATE_SETTINGS, UPDATE_FAVICON, dan UPDATE_LOGO tanpa frasa departemen lama
     const logsRes = await fetch(`${baseUrl}/api/logs?mode=ADMIN`, {
       headers: { Authorization: `Bearer ${adminToken}` }
     });
@@ -1037,8 +1118,10 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
     const logs = await logsRes.json();
     const settingsLog = logs.find((l) => l.action_type === 'UPDATE_SETTINGS');
     const faviconLog = logs.find((l) => l.action_type === 'UPDATE_FAVICON');
+    const logoLog = logs.find((l) => l.action_type === 'UPDATE_LOGO');
     assert.ok(settingsLog, 'Log UPDATE_SETTINGS harus tercatat');
     assert.ok(faviconLog, 'Log UPDATE_FAVICON harus tercatat');
+    assert.ok(logoLog, 'Log UPDATE_LOGO harus tercatat');
     assert.ok(!settingsLog.description.includes('Departemen Teknik Elektro'));
   });
 });

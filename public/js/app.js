@@ -302,6 +302,31 @@ async function loadAppSettings() {
     const footerBrandEl = document.getElementById('footerBrandLabel');
     if (footerBrandEl) footerBrandEl.textContent = footerText;
 
+    // Terapkan logo header dinamis
+    const brandCrestEl = document.getElementById('navbarBrandCrest');
+    const brandLogoEl = document.getElementById('navbarBrandLogo');
+    const logoPreviewEl = document.getElementById('currentLogoPreview');
+    const logoPathTextEl = document.getElementById('currentLogoPathText');
+
+    if (settings.logo_path) {
+      const logoHref = `${settings.logo_path}?t=${Date.now()}`;
+      if (brandLogoEl) {
+        brandLogoEl.src = logoHref;
+        brandLogoEl.classList.remove('hidden');
+      }
+      if (brandCrestEl) brandCrestEl.classList.add('hidden');
+      if (logoPreviewEl) logoPreviewEl.src = logoHref;
+      if (logoPathTextEl) logoPathTextEl.textContent = settings.logo_path;
+    } else {
+      if (brandLogoEl) {
+        brandLogoEl.removeAttribute('src');
+        brandLogoEl.classList.add('hidden');
+      }
+      if (brandCrestEl) brandCrestEl.classList.remove('hidden');
+      if (logoPreviewEl) logoPreviewEl.src = '/favicon.ico';
+      if (logoPathTextEl) logoPathTextEl.textContent = 'Logo Bawaan (Crest UI)';
+    }
+
     // Terapkan favicon dinamis
     const faviconEl = document.getElementById('dynamicFavicon');
     const previewEl = document.getElementById('currentFaviconPreview');
@@ -1454,6 +1479,40 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     try {
       const res = await apiFetch('/api/settings/favicon', {
+        method: 'POST',
+        body: formData
+      });
+      showAlert(res.message, 'success');
+      fileInput.value = '';
+      await loadAppSettings();
+      if (state.activeViewRole === 'ADMIN') loadAdminLogs();
+    } catch (err) {
+      showAlert(err.message, 'error');
+    }
+  });
+
+  // Form Upload Logo Header Aplikasi (*.png, *.jpg, *.jpeg, *.webp)
+  document.getElementById('settingsLogoForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fileInput = document.getElementById('settingLogoFile');
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) {
+      showAlert('Pilih berkas gambar logo terlebih dahulu.', 'error');
+      return;
+    }
+
+    const lower = file.name.toLowerCase();
+    const validExts = ['.png', '.jpg', '.jpeg', '.webp'];
+    if (!validExts.some((ext) => lower.endsWith(ext))) {
+      showAlert('Berkas logo harus berupa gambar (*.png, *.jpg, *.jpeg, *.webp)', 'error');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('logo', file);
+
+    try {
+      const res = await apiFetch('/api/settings/logo', {
         method: 'POST',
         body: formData
       });

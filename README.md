@@ -18,9 +18,11 @@
 ### 2. Mode Pengguna & Pengaturan Website
 - **Pengaturan Website Dinamis (Khusus Mode Admin):**
   - Mengubah **Nama Sistem Informasi** dan **Subtitle / Kepanjangan** yang tampil di bagian *navbar* dan *title* tab peramban secara *real-time*.
+  - Mengubah **Logo Header Aplikasi** dengan mengunggah berkas gambar (`*.png`, `*.jpg`, `*.jpeg`, `*.webp`) berukuran proporsional yang menggantikan ikon bawaan di header navbar.
+  - Mengubah **Icon Website (*.ico)** dengan mengunggah berkas `*.ico` langsung dari Panel Administrator.
   - Mengubah **Label Footer** serta mengelola konten **Kebijakan Privasi (Privacy Policy)** dan **Penyangkalan (Disclaimer)** melalui *HTML Rich Text Editor*.
   - Tautan klausul **Kebijakan Privasi** dan **Penyangkalan** muncul langsung di samping teks footer dan dapat dibuka oleh siapa saja dalam bentuk modal *popup*.
-  - Mengubah **Icon Website (*.ico)** dengan mengunggah berkas `*.ico` langsung dari Panel Administrator.
+  - **Proteksi Sanitasi Keamanan Siber Penuh:** Seluruh input form pengaturan disanitasi ketat terhadap injeksi tag skrip / payload berbahaya (Anti-Stored XSS) dan disimpan menggunakan kueri terparameterisasi (Anti-SQL Injection).
   - Seluruh konfigurasi disimpan secara persisten di tabel database `app_settings`.
 - **Pengaturan Profil & Password Mandiri (Seluruh Role):**
   - Setiap pengguna (**Admin**, **Dosen**, dan **Mahasiswa**) memiliki menu **👤 Profil & Password** di *navbar* untuk memperbarui profil dan mengganti kata sandi masing-masing.
@@ -282,9 +284,11 @@ npm ci --omit=dev
       privacy_policy_html TEXT DEFAULT '<h3>Kebijakan Privasi</h3><p>Website SIMTA digunakan secara khusus untuk evaluasi Tugas Akhir.</p>',
       disclaimer_html TEXT DEFAULT '<h3>Penyangkalan</h3><p>Informasi dan dokumen yang diunggah merupakan dokumen akademik resmi.</p>',
       favicon_path VARCHAR(512) DEFAULT NULL,
+      logo_path VARCHAR(512) DEFAULT NULL,
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT single_row_app_settings CHECK (id = 1)
   );
+  ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS logo_path VARCHAR(512) DEFAULT NULL;
   INSERT INTO app_settings (id, app_name, app_subtitle, footer_text)
   VALUES (1, 'SIMTA', 'Sistem Informasi Manajemen Tugas Akhir (S1 • S2 • S3)', 'Sistem Informasi Manajemen Tugas Akhir (SIMTA)')
   ON CONFLICT (id) DO NOTHING;

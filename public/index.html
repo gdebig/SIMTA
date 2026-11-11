@@ -13,6 +13,7 @@
   <header class="navbar">
     <div class="brand">
       <div class="brand-crest" id="navbarBrandCrest">UI</div>
+      <img id="navbarBrandLogo" class="brand-logo-img hidden" alt="Logo Aplikasi" />
       <div class="brand-text">
         <h1 id="navbarBrandTitle">SIMTA</h1>
         <p id="navbarBrandSubtitle">Sistem Informasi Manajemen Tugas Akhir (S1 • S2 • S3)</p>
@@ -350,10 +351,37 @@
             </form>
           </div>
 
-          <!-- Form Upload Icon Website (*.ico) -->
+          <!-- Form Upload Icon Website (*.ico) & Logo Header Aplikasi -->
           <div>
             <h4 style="color:var(--navy-primary);margin-bottom:0.75rem;font-size:0.95rem;">
-              2. Ubah Icon Website (*.ico)
+              2. Ubah Logo Header Aplikasi (*.png, *.jpg, *.jpeg, *.webp)
+            </h4>
+            <div style="background:var(--surface-neutral);padding:1rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:1.25rem;">
+              <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.8rem;">
+                <div style="width:54px;height:54px;background:#0F172A;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid #CBD5E1;">
+                  <img id="currentLogoPreview" alt="Logo Preview" style="max-width:44px;max-height:44px;object-fit:contain;" />
+                </div>
+                <div>
+                  <div style="font-weight:600;font-size:0.86rem;">Logo Header Saat Ini</div>
+                  <div id="currentLogoPathText" style="font-size:0.78rem;color:var(--text-secondary);">Logo Bawaan (Crest UI)</div>
+                </div>
+              </div>
+              <form id="settingsLogoForm">
+                <div class="form-group">
+                  <label class="form-label" for="settingLogoFile">Pilih Berkas Logo Gambar Baru</label>
+                  <input type="file" id="settingLogoFile" class="form-control" accept=".png,.jpg,.jpeg,.webp" required />
+                  <p style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.25rem;">
+                    Format berkas: <strong>PNG, JPG, JPEG, WEBP</strong> (ukuran proporsional, maksimal 3 MB).
+                  </p>
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm" id="btnUploadLogo">
+                  🖼️ Unggah &amp; Terapkan Logo Header
+                </button>
+              </form>
+            </div>
+
+            <h4 style="color:var(--navy-primary);margin-bottom:0.75rem;font-size:0.95rem;">
+              3. Ubah Icon Website (*.ico)
             </h4>
             <div style="background:var(--surface-neutral);padding:1rem;border-radius:8px;border:1px solid var(--border-color);margin-bottom:1rem;">
               <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.8rem;">
@@ -381,7 +409,7 @@
 
             <div class="alert alert-info" style="font-size:0.82rem;line-height:1.5;">
               <strong>ℹ️ Catatan Penyimpanan:</strong><br />
-              Seluruh konfigurasi nama sistem, subtitle, label footer, klausul hukum, serta path icon website disimpan di tabel database <code>app_settings</code> dan langsung aktif pada seluruh browser pengguna.
+              Seluruh konfigurasi nama sistem, subtitle, label footer, klausul hukum, icon (*.ico), serta logo header disimpan secara persisten di tabel database <code>app_settings</code> dan langsung aktif di seluruh halaman website.
             </div>
           </div>
         </div>

@@ -87,6 +87,24 @@ const uploadFavicon = multer({
   }
 });
 
+const ALLOWED_LOGO_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
+const uploadLogo = multer({
+  storage,
+  limits: { fileSize: 3 * 1024 * 1024 }, // Maksimal 3 MB untuk logo aplikasi
+  fileFilter: (_req, file, cb) => {
+    try {
+      const ext = path.extname(file.originalname || '').toLowerCase();
+      if (!ALLOWED_LOGO_EXTS.has(ext)) {
+        return cb(new Error('Berkas logo website harus berformat gambar (*.png, *.jpg, *.jpeg, *.webp)'));
+      }
+      validateSafeUploadFiles([file], uploadDir);
+      cb(null, true);
+    } catch (err) {
+      cb(err);
+    }
+  }
+});
+
 // Middleware Header Keamanan HTTP (Anti-XSS, Clickjacking, MIME Sniffing & Anti-Session Injection)
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -226,7 +244,7 @@ function requireRole(...allowedRoles) {
 app.get('/api/settings', async (_req, res) => {
   try {
     const result = await db.query(
-      `SELECT app_name, app_subtitle, footer_text, privacy_policy_html, disclaimer_html, favicon_path, updated_at
+      `SELECT app_name, app_subtitle, footer_text, privacy_policy_html, disclaimer_html, favicon_path, logo_path, updated_at
        FROM app_settings
        WHERE id = 1`
     );
@@ -237,7 +255,8 @@ app.get('/api/settings', async (_req, res) => {
         footer_text: 'Sistem Informasi Manajemen Tugas Akhir (SIMTA)',
         privacy_policy_html: '<h3>Kebijakan Privasi (Privacy Policy)</h3><p>Website SIMTA ini digunakan secara khusus untuk keperluan pencatatan dan evaluasi kemajuan Tugas Akhir. Seluruh data identitas pengguna, laporan kemajuan, dan dokumen lampiran disimpan dan dilindungi secara aman serta hanya dapat diakses oleh pihak yang berwenang.</p>',
         disclaimer_html: '<h3>Penyangkalan (Disclaimer)</h3><p>Informasi dan dokumen yang diunggah ke dalam sistem ini merupakan dokumen akademik resmi. Pengguna bertanggung jawab penuh atas keaslian dokumen dan laporan yang diunggah ke dalam portal ini.</p>',
-        favicon_path: null
+        favicon_path: null,
+        logo_path: null
       });
     }
     res.json(result.rows[0]);
@@ -250,6 +269,7 @@ app.get('/api/settings', async (_req, res) => {
 app.put('/api/settings', authenticate, requireRole('ADMIN'), async (req, res) => {
   const { app_name, app_subtitle, footer_text, privacy_policy_html, disclaimer_html } = req.body;
 
+  // Sanitasi ketat Anti-XSS & Anti-SQL Injection (semua parameter diproses dengan sanitasi dan parameterized query)
   const cleanAppName = sanitizePlainText(app_name) || 'SIMTA';
   const cleanAppSubtitle = sanitizePlainText(app_subtitle) || 'Sistem Informasi Manajemen Tugas Akhir (S1 • S2 • S3)';
   const cleanFooterText = stripDepartmentPhrases(sanitizePlainText(footer_text)) || 'Sistem Informasi Manajemen Tugas Akhir (SIMTA)';
@@ -267,7 +287,7 @@ app.put('/api/settings', authenticate, requireRole('ADMIN'), async (req, res) =>
            privacy_policy_html = EXCLUDED.privacy_policy_html,
            disclaimer_html = EXCLUDED.disclaimer_html,
            updated_at = CURRENT_TIMESTAMP
-       RETURNING app_name, app_subtitle, footer_text, privacy_policy_html, disclaimer_html, favicon_path, updated_at`,
+       RETURNING app_name, app_subtitle, footer_text, privacy_policy_html, disclaimer_html, favicon_path, logo_path, updated_at`,
       [cleanAppName, cleanAppSubtitle, cleanFooterText, cleanPrivacy, cleanDisclaimer]
     );
 
@@ -322,7 +342,7 @@ app.post('/api/settings/favicon', authenticate, requireRole('ADMIN'), (req, res)
          ON CONFLICT (id) DO UPDATE
          SET favicon_path = EXCLUDED.favicon_path,
              updated_at = CURRENT_TIMESTAMP
-         RETURNING app_name, app_subtitle, footer_text, privacy_policy_html, disclaimer_html, favicon_path, updated_at`,
+         RETURNING app_name, app_subtitle, footer_text, privacy_policy_html, disclaimer_html, favicon_path, logo_path, updated_at`,
         [relativePath]
       );
 
@@ -343,6 +363,55 @@ app.post('/api/settings/favicon', authenticate, requireRole('ADMIN'), (req, res)
       });
     } catch (dbErr) {
       res.status(500).json({ error: `Gagal memperbarui icon website: ${dbErr.message}` });
+    }
+  });
+});
+
+// Endpoint Mode Admin: Mengubah logo header aplikasi (gambar proporsional *.png, *.jpg, *.jpeg, *.webp)
+app.post('/api/settings/logo', authenticate, requireRole('ADMIN'), (req, res) => {
+  uploadLogo.single('logo')(req, res, async (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'Berkas gambar logo wajib diunggah.' });
+    }
+
+    try {
+      const ext = path.extname(req.file.originalname || '').toLowerCase();
+      if (!ALLOWED_LOGO_EXTS.has(ext)) {
+        return res.status(400).json({ error: 'Berkas logo website harus berformat gambar (*.png, *.jpg, *.jpeg, *.webp)' });
+      }
+
+      const relativePath = `/uploads/${req.file.filename}`;
+
+      const result = await db.query(
+        `INSERT INTO app_settings (id, logo_path, updated_at)
+         VALUES (1, $1, CURRENT_TIMESTAMP)
+         ON CONFLICT (id) DO UPDATE
+         SET logo_path = EXCLUDED.logo_path,
+             updated_at = CURRENT_TIMESTAMP
+         RETURNING app_name, app_subtitle, footer_text, privacy_policy_html, disclaimer_html, favicon_path, logo_path, updated_at`,
+        [relativePath]
+      );
+
+      await recordActivityLog({
+        userId: req.user.id,
+        actorName: req.user.name,
+        actorIdentifier: req.user.nip_or_npm,
+        actorRoles: req.user.roles,
+        actionType: 'UPDATE_LOGO',
+        description: `Admin memperbarui logo header website baru (${req.file.originalname}).`,
+        targetUserId: null
+      });
+
+      res.json({
+        message: 'Logo header website berhasil diperbarui.',
+        logo_path: relativePath,
+        settings: result.rows[0]
+      });
+    } catch (dbErr) {
+      res.status(500).json({ error: `Gagal memperbarui logo website: ${dbErr.message}` });
     }
   });
 });
