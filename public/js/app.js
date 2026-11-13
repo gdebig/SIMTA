@@ -985,6 +985,68 @@ async function renderAdminStudentReportsPanel(student) {
 // =========================================================
 // 6. PANEL DOSEN PEMBIMBING: DAFTAR MAHASISWA BIMBINGAN & LAPORAN
 // =========================================================
+function updateDosenSelectedBadge() {
+  const count = document.querySelectorAll('input[name="dosen_target_mahasiswa"]:checked').length;
+  const badge = document.getElementById('dosenSelectedStudentsCountBadge');
+  if (badge) {
+    badge.textContent = `${count} dipilih`;
+    badge.style.background = count > 0 ? '#DBEAFE' : '#E2E8F0';
+    badge.style.color = count > 0 ? '#1D4ED8' : '#334155';
+  }
+}
+
+async function loadDosenSupervisedStudentsForForm() {
+  const container = document.getElementById('dosenReportStudentsContainer');
+  if (!container || !state.user?.id) return;
+
+  try {
+    const supervised = await apiFetch(`/api/users?role=MAHASISWA&dosen_pembimbing_id=${state.user.id}`);
+    if (!supervised || supervised.length === 0) {
+      container.innerHTML = `
+        <div style="color:var(--text-secondary);font-size:0.8rem;grid-column:1/-1;padding:0.5rem;text-align:center;">
+          Anda belum memiliki mahasiswa bimbingan terdaftar.
+        </div>
+      `;
+      updateDosenSelectedBadge();
+      return;
+    }
+
+    // Pertahankan pilihan checkbox mahasiswa yang saat ini sudah dicentang
+    const currentChecked = new Set(
+      Array.from(container.querySelectorAll('input[name="dosen_target_mahasiswa"]:checked')).map((cb) => cb.value)
+    );
+
+    container.innerHTML = supervised
+      .map(
+        (m) => `
+        <label style="display:flex;align-items:flex-start;gap:0.45rem;padding:0.45rem 0.6rem;background:#fff;border:1px solid #CBD5E1;border-radius:4px;cursor:pointer;font-size:0.8rem;transition:border-color 0.15s ease;">
+          <input type="checkbox" name="dosen_target_mahasiswa" value="${m.id}" class="dosen-mhs-checkbox" ${currentChecked.has(m.id) ? 'checked' : ''} style="margin-top:0.2rem;" />
+          <div style="line-height:1.25;">
+            <strong style="color:var(--text-primary);">${m.name}</strong><br/>
+            <span style="color:var(--text-secondary);font-size:0.75rem;">${m.nip_or_npm} • ${m.degree || 'S1'}</span>
+          </div>
+        </label>
+      `
+      )
+      .join('');
+
+    container.querySelectorAll('.dosen-mhs-checkbox').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        updateDosenSelectedBadge();
+        const allCbs = Array.from(container.querySelectorAll('.dosen-mhs-checkbox'));
+        const selectAll = document.getElementById('dosenReportSelectAll');
+        if (selectAll) {
+          selectAll.checked = allCbs.length > 0 && allCbs.every((c) => c.checked);
+        }
+      });
+    });
+
+    updateDosenSelectedBadge();
+  } catch (err) {
+    console.error('Gagal memuat mahasiswa bimbingan untuk formulir:', err);
+  }
+}
+
 async function loadDosenStudents() {
   const scope = document.getElementById('dosenFilterScope').value;
   const supStatus = document.getElementById('dosenFilterSupervisionStatus').value;
@@ -1046,14 +1108,40 @@ async function loadDosenStudents() {
             </div>
           </td>
           <td>
-            <button type="button" class="btn btn-primary btn-sm dosen-select-student" data-student-id="${m.id}" data-student-name="${m.name}">
-              Lihat Laporan (${m.report_count || 0})
-            </button>
+            <div style="display:flex;gap:0.35rem;align-items:center;flex-wrap:wrap;">
+              <button type="button" class="btn btn-primary btn-sm dosen-select-student" data-student-id="${m.id}" data-student-name="${m.name}">
+                Lihat Laporan (${m.report_count || 0})
+              </button>
+              ${
+                m.dosen_pembimbing_id === state.user?.id
+                  ? `<button type="button" class="btn btn-outline btn-sm dosen-quick-add-report" data-student-id="${m.id}" data-student-name="${m.name}" title="Buat Laporan untuk Mahasiswa Ini">
+                      ✍ Buat Laporan
+                    </button>`
+                  : ''
+              }
+            </div>
           </td>
         </tr>
       `;
     })
     .join('');
+
+  tbody.querySelectorAll('.dosen-quick-add-report').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
+      const mhsId = el.getAttribute('data-student-id');
+      const targetCb = document.querySelector(`input[name="dosen_target_mahasiswa"][value="${mhsId}"]`);
+      if (targetCb) {
+        targetCb.checked = true;
+        updateDosenSelectedBadge();
+      }
+      const formEl = document.getElementById('createDosenReportForm');
+      if (formEl) {
+        formEl.scrollIntoView({ behavior: 'smooth' });
+        document.getElementById('dosenReportTitle')?.focus();
+      }
+    });
+  });
 
   tbody.querySelectorAll('.dosen-select-student').forEach((el) => {
     el.addEventListener('click', async (e) => {
@@ -1085,6 +1173,9 @@ async function loadDosenStudents() {
       }
     });
   });
+
+  // Muat opsi pilihan mahasiswa bimbingan di form tambah laporan dosen
+  await loadDosenSupervisedStudentsForForm();
 }
 
 async function loadDosenReports() {
@@ -1976,6 +2067,117 @@ document.addEventListener('DOMContentLoaded', async () => {
       showAlert(err.message, 'error');
     }
   });
+
+  // Pilihan Checkbox "Pilih Semua Mahasiswa Bimbingan" (Mode Dosen)
+  const dosenReportSelectAll = document.getElementById('dosenReportSelectAll');
+  if (dosenReportSelectAll) {
+    dosenReportSelectAll.addEventListener('change', (e) => {
+      const isChecked = e.target.checked;
+      document.querySelectorAll('input[name="dosen_target_mahasiswa"]').forEach((cb) => {
+        cb.checked = isChecked;
+      });
+      updateDosenSelectedBadge();
+    });
+  }
+
+  // Validasi live ukuran berkas lampiran laporan Dosen (Maks 10MB)
+  const dosenFileInput = document.getElementById('dosenReportFiles');
+  const dosenQuotaBar = document.getElementById('dosenFileQuotaBar');
+  const dosenQuotaText = document.getElementById('dosenFileQuotaText');
+  const btnDosenSubmit = document.getElementById('btnDosenSubmitReport');
+
+  if (dosenFileInput) {
+    dosenFileInput.addEventListener('change', () => {
+      const files = Array.from(dosenFileInput.files || []);
+      const totalBytes = files.reduce((acc, f) => acc + f.size, 0);
+      const totalMb = (totalBytes / (1024 * 1024)).toFixed(2);
+      const pct = Math.min(100, (totalBytes / MAX_BYTES) * 100);
+
+      const invalidFile = files.find((f) => {
+        const lower = (f.name || '').toLowerCase();
+        const dotIdx = lower.lastIndexOf('.');
+        const ext = dotIdx >= 0 ? lower.slice(dotIdx) : '';
+        return !ALLOWED_EXTS.has(ext);
+      });
+
+      dosenQuotaBar.style.width = `${pct}%`;
+      if (invalidFile) {
+        dosenQuotaBar.classList.add('danger');
+        dosenQuotaText.style.color = 'var(--danger)';
+        dosenQuotaText.textContent = `✗ Berkas "${invalidFile.name}" memiliki ekstensi yang dilarang!`;
+        if (btnDosenSubmit) btnDosenSubmit.disabled = true;
+      } else if (totalBytes > MAX_BYTES) {
+        dosenQuotaBar.classList.add('danger');
+        dosenQuotaText.style.color = 'var(--danger)';
+        dosenQuotaText.textContent = `✗ Total berkas ${totalMb} MB melebihi batas maksimal 10.00 MB!`;
+        if (btnDosenSubmit) btnDosenSubmit.disabled = true;
+      } else {
+        dosenQuotaBar.classList.remove('danger');
+        dosenQuotaText.style.color = 'var(--text-secondary)';
+        dosenQuotaText.textContent = `Total ukuran berkas: ${totalMb} MB / 10.00 MB`;
+        if (btnDosenSubmit) btnDosenSubmit.disabled = false;
+      }
+    });
+  }
+
+  // Submit Laporan Mahasiswa oleh Dosen Pembimbing (Satu atau Lebih Mahasiswa Bimbingan)
+  const createDosenReportForm = document.getElementById('createDosenReportForm');
+  if (createDosenReportForm) {
+    createDosenReportForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const checkedBoxes = Array.from(document.querySelectorAll('input[name="dosen_target_mahasiswa"]:checked'));
+      const selectedMahasiswaIds = checkedBoxes.map((cb) => cb.value);
+
+      if (selectedMahasiswaIds.length === 0) {
+        showAlert('Silakan pilih minimal satu mahasiswa bimbingan penerima laporan.', 'error');
+        return;
+      }
+
+      const files = Array.from(dosenFileInput?.files || []);
+      const totalBytes = files.reduce((acc, f) => acc + f.size, 0);
+      if (totalBytes > MAX_BYTES) {
+        showAlert('Total berkas melebihi batas maksimal 10MB.', 'error');
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('academic_year_id', document.getElementById('dosenReportAcademicYear').value);
+      formData.append('status', document.getElementById('dosenReportStatusInput').value);
+      formData.append('title', document.getElementById('dosenReportTitle').value);
+      formData.append('report_html', document.getElementById('dosenReportEditor').innerHTML);
+      selectedMahasiswaIds.forEach((id) => formData.append('mahasiswa_ids', id));
+      files.forEach((f) => formData.append('attachments', f));
+
+      try {
+        if (btnDosenSubmit) {
+          btnDosenSubmit.disabled = true;
+          btnDosenSubmit.textContent = 'Menyimpan Laporan...';
+        }
+        const res = await apiFetch('/api/reports', {
+          method: 'POST',
+          body: formData
+        });
+        showAlert(res.message || 'Laporan kemajuan untuk mahasiswa bimbingan berhasil disimpan.', 'success');
+        document.getElementById('dosenReportTitle').value = '';
+        if (dosenFileInput) dosenFileInput.value = '';
+        if (dosenQuotaBar) dosenQuotaBar.style.width = '0%';
+        if (dosenQuotaText) dosenQuotaText.textContent = 'Total ukuran berkas: 0.00 MB / 10.00 MB';
+        // Reset pilihan mahasiswa
+        checkedBoxes.forEach((cb) => (cb.checked = false));
+        if (dosenReportSelectAll) dosenReportSelectAll.checked = false;
+        updateDosenSelectedBadge();
+
+        await Promise.all([loadDosenReports(), loadDosenStudents(), loadStats(), loadDosenLogs()]);
+      } catch (err) {
+        showAlert(err.message, 'error');
+      } finally {
+        if (btnDosenSubmit) {
+          btnDosenSubmit.disabled = false;
+          btnDosenSubmit.textContent = 'Kirim Laporan Mahasiswa';
+        }
+      }
+    });
+  }
 
   // Restore session jika token tersimpan dan belum melewati batas 30 menit tidak aktif
   checkIdleSessionTimeout();

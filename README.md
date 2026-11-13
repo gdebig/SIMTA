@@ -35,6 +35,7 @@
   - Melihat seluruh **Log Aktivitas** sistem dilengkapi fitur pencarian pengguna dan *pagination* dinamis (5, 10, 25, 50 baris). Log secara otomatis dibersihkan dari frasa instansi/departemen lama.
 - **Mode Dosen Pembimbing (`DOSEN`):**
   - Melihat daftar mahasiswa bimbingan beserta tahun ajaran mulai, jenjang studi (`S1`/`S2`/`S3`), judul tugas akhir, dan status bimbingan.
+  - **Menambahkan Laporan Kemajuan untuk Satu atau Lebih Mahasiswa Bimbingan:** Dosen dapat memasukkan laporan kemajuan atau catatan evaluasi resmi secara langsung baik untuk satu mahasiswa terpilih maupun sekaligus untuk beberapa mahasiswa bimbingan (fitur batch). Isian laporan sama lengkapnya dengan mode mahasiswa (Tahun Ajaran, Status Pengajuan, Judul Laporan, Editor Rich Text HTML, dan Lampiran Berkas maks. 10 MB).
   - Melakukan pencarian mahasiswa maupun laporan berdasarkan **nama mahasiswa** atau **judul tugas akhir**.
   - Memberikan komentar evaluasi, catatan tindak lanjut (*follow-up notes*), dan memperbarui status laporan (`SUBMITTED`, `REVIEWED`, `APPROVED`).
   - Memantau log aktivitas untuk akunnya sendiri maupun mahasiswa di bawah bimbingannya.

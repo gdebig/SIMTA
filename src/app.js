@@ -1823,7 +1823,7 @@ function handleReportUpload(req, res, next) {
 app.post(
   '/api/reports',
   authenticate,
-  requireRole('MAHASISWA'),
+  requireRole('MAHASISWA', 'DOSEN'),
   handleReportUpload,
   async (req, res) => {
     const uploadedFiles = req.files || [];
@@ -1843,7 +1843,7 @@ app.post(
       return res.status(400).json({ error: err.message });
     }
 
-    const { academic_year_id, title, report_html, status } = req.body;
+    const { academic_year_id, title, report_html, status, mahasiswa_id, mahasiswa_ids } = req.body;
     const cleanAcademicYear = sanitizePlainText(academic_year_id);
     const cleanTitle = sanitizePlainText(title);
 
@@ -1857,48 +1857,138 @@ app.post(
     const cleanReportHtml = sanitizeEditorContent(report_html);
     const reportStatus = VALID_STATUSES.includes(status) ? status : 'SUBMITTED';
 
+    // Tentukan target mahasiswa penerima laporan
+    let targetMahasiswaIds = [];
+    const isDosen = req.user.roles.includes('DOSEN');
+
+    if (req.user.roles.includes('MAHASISWA')) {
+      targetMahasiswaIds = [req.user.id];
+    } else if (isDosen) {
+      // Dosen dapat menambahkan laporan untuk satu atau lebih mahasiswa bimbingan
+      let rawIds = [];
+      if (Array.isArray(mahasiswa_ids)) {
+        rawIds = mahasiswa_ids;
+      } else if (typeof mahasiswa_ids === 'string' && mahasiswa_ids.trim()) {
+        try {
+          const parsed = JSON.parse(mahasiswa_ids);
+          rawIds = Array.isArray(parsed) ? parsed : [mahasiswa_ids];
+        } catch {
+          rawIds = mahasiswa_ids.split(',').map((s) => s.trim()).filter(Boolean);
+        }
+      } else if (mahasiswa_id) {
+        rawIds = [mahasiswa_id];
+      }
+
+      // Validasi format UUID untuk seluruh ID mahasiswa (Anti-SQLi & Invalid UUID prevention)
+      const validIds = Array.from(new Set(rawIds.map((id) => String(id || '').trim()))).filter(isValidUuid);
+      if (validIds.length === 0) {
+        cleanupUploadedFiles();
+        return res.status(400).json({
+          error: 'Pilih minimal satu mahasiswa bimbingan yang valid untuk dibuatkan laporan.'
+        });
+      }
+
+      // Verifikasi otorisasi: Dosen hanya boleh menambahkan laporan untuk mahasiswa yang dibimbingnya
+      const checkRes = await db.query(
+        `SELECT u.id, u.name, u.nip_or_npm
+         FROM users u
+         JOIN mahasiswa_profiles mp ON mp.user_id = u.id
+         WHERE u.id = ANY($1::uuid[]) AND mp.dosen_pembimbing_id = $2`,
+        [validIds, req.user.id]
+      );
+
+      if (checkRes.rows.length === 0) {
+        cleanupUploadedFiles();
+        return res.status(403).json({
+          error: 'Anda hanya dapat menambahkan laporan untuk mahasiswa yang berada di bawah bimbingan Anda.'
+        });
+      }
+
+      targetMahasiswaIds = checkRes.rows.map((r) => r.id);
+    }
+
+    if (targetMahasiswaIds.length === 0) {
+      cleanupUploadedFiles();
+      return res.status(400).json({ error: 'Target mahasiswa tidak ditemukan.' });
+    }
+
     const client = await db.getClient();
     try {
       await client.query('BEGIN');
 
-      const reportInsert = await client.query(
-        `INSERT INTO progress_reports (mahasiswa_id, academic_year_id, title, report_html, status)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING *`,
-        [req.user.id, cleanAcademicYear, cleanTitle, cleanReportHtml, reportStatus]
-      );
-      const report = reportInsert.rows[0];
+      const createdReports = [];
 
-      const attachments = [];
-      for (const f of uploadedFiles) {
-        const { safeBaseName } = resolveSafeUploadPath(f.originalname, uploadDir);
-        const attRes = await client.query(
-          `INSERT INTO progress_attachments (report_id, file_name, file_path, file_size_bytes)
-           VALUES ($1, $2, $3, $4)
+      for (let i = 0; i < targetMahasiswaIds.length; i++) {
+        const mhsId = targetMahasiswaIds[i];
+
+        const reportInsert = await client.query(
+          `INSERT INTO progress_reports (mahasiswa_id, academic_year_id, title, report_html, status)
+           VALUES ($1, $2, $3, $4, $5)
            RETURNING *`,
-          [report.id, safeBaseName, `/uploads/${path.basename(f.filename)}`, f.size]
+          [mhsId, cleanAcademicYear, cleanTitle, cleanReportHtml, reportStatus]
         );
-        attachments.push(attRes.rows[0]);
+        const report = reportInsert.rows[0];
+
+        const attachments = [];
+        for (const f of uploadedFiles) {
+          const { safeBaseName } = resolveSafeUploadPath(f.originalname, uploadDir);
+          let diskFilename = path.basename(f.filename);
+
+          // Jika mendistribusikan ke lebih dari 1 mahasiswa, duplikasikan berkas fisik di disk untuk integritas relasi
+          if (i > 0) {
+            const ext = path.extname(diskFilename);
+            const copyFilename = `${Date.now()}-${i}-${safeBaseName}`;
+            const copyPath = path.resolve(uploadDir, copyFilename);
+            try {
+              fs.copyFileSync(f.path, copyPath);
+              diskFilename = copyFilename;
+            } catch (copyErr) {
+              console.warn('Gagal menduplikasi lampiran laporan multi-mahasiswa:', copyErr.message);
+            }
+          }
+
+          const attRes = await client.query(
+            `INSERT INTO progress_attachments (report_id, file_name, file_path, file_size_bytes)
+             VALUES ($1, $2, $3, $4)
+             RETURNING *`,
+            [report.id, safeBaseName, `/uploads/${diskFilename}`, f.size]
+          );
+          attachments.push(attRes.rows[0]);
+        }
+
+        const actorRoleLabel = isDosen ? 'Dosen Pembimbing' : 'Mahasiswa';
+        await recordActivityLog(
+          {
+            userId: req.user.id,
+            actorName: req.user.name,
+            actorIdentifier: req.user.nip_or_npm,
+            actorRoles: req.user.roles,
+            actionType: 'CREATE_REPORT',
+            description: `${actorRoleLabel} (${req.user.name}) memasukkan laporan kemajuan: "${report.title}" (T.A. ${report.academic_year_id}, Status: ${report.status}, ${attachments.length} lampiran) untuk mahasiswa ID ${mhsId}.`,
+            targetUserId: mhsId
+          },
+          client
+        );
+
+        createdReports.push({
+          ...report,
+          attachments
+        });
       }
 
-      await recordActivityLog(
-        {
-          userId: req.user.id,
-          actorName: req.user.name,
-          actorIdentifier: req.user.nip_or_npm,
-          actorRoles: req.user.roles,
-          actionType: 'CREATE_REPORT',
-          description: `Mahasiswa memasukkan laporan kemajuan: "${report.title}" (T.A. ${report.academic_year_id}, Status: ${report.status}, ${attachments.length} lampiran).`,
-          targetUserId: req.user.id
-        },
-        client
-      );
-
       await client.query('COMMIT');
-      res.status(201).json({
-        ...report,
-        attachments
-      });
+
+      // Jika single report (seperti pada mode mahasiswa), kembalikan objek tunggal; jika multi, kembalikan response array/objek
+      if (createdReports.length === 1 && req.user.roles.includes('MAHASISWA')) {
+        res.status(201).json(createdReports[0]);
+      } else {
+        res.status(201).json({
+          message: `Laporan kemajuan berhasil disimpan untuk ${createdReports.length} mahasiswa.`,
+          count: createdReports.length,
+          reports: createdReports,
+          ...(createdReports[0] || {})
+        });
+      }
     } catch (err) {
       await client.query('ROLLBACK');
       cleanupUploadedFiles();

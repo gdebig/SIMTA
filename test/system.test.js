@@ -499,6 +499,149 @@ describe('Sistem Informasi Tugas Akhir - End-to-End API, PostgreSQL & Cybersecur
     assert.ok(createdReport.report_html.includes('<b>valid</b>'));
   });
 
+  test('Mode Dosen: Dapat menambahkan laporan untuk satu atau lebih mahasiswa bimbingan dengan isian lengkap, tersanitasi Anti-XSS & Anti-SQLi', async () => {
+    // 1. Dosen Login
+    const dosenCaptcha = await issueTestCaptcha();
+    const dosenLoginRes = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        identifier: 'budi.santoso@ui.ac.id',
+        password: 'simta123',
+        ...dosenCaptcha
+      })
+    });
+    assert.strictEqual(dosenLoginRes.status, 200);
+    const dosenData = await dosenLoginRes.json();
+    const testDosenToken = dosenData.token;
+
+    // Ambil ID mahasiswa bimbingan Dosen Budi Santoso
+    const studentsRes = await fetch(`${baseUrl}/api/users?role=MAHASISWA`, {
+      headers: { Authorization: `Bearer ${testDosenToken}` }
+    });
+    assert.strictEqual(studentsRes.status, 200);
+    const students = await studentsRes.json();
+    const dimas = students.find((s) => s.nip_or_npm === '2106701234');
+    const hendra = students.find((s) => s.nip_or_npm === '2206009912');
+    assert.ok(dimas, 'Mahasiswa Dimas harus ditemukan');
+    assert.ok(hendra, 'Mahasiswa Hendra harus ditemukan');
+
+    // 2. Dosen menambahkan laporan untuk SATU mahasiswa bimbingan dengan file lampiran
+    const singleForm = new FormData();
+    singleForm.append('academic_year_id', '2025/2026');
+    singleForm.append('status', 'REVIEWED');
+    singleForm.append('title', 'Laporan Evaluasi Bab 3 oleh Dosen <script>alert("XSS")</script>');
+    singleForm.append(
+      'report_html',
+      '<h3>Catatan Kemajuan Bab 3</h3><p>Progres simulasi baik.<script>evil()</script><img src=x onerror=alert(1)> Silakan lanjut ke bab 4.</p>'
+    );
+    singleForm.append('mahasiswa_ids', dimas.id);
+    singleForm.append(
+      'attachments',
+      new Blob(['%PDF-1.4\n% Catatan Evaluasi Dosen'], { type: 'application/pdf' }),
+      'Evaluasi_Dosen_Dimas.pdf'
+    );
+
+    const singleRes = await fetch(`${baseUrl}/api/reports`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${testDosenToken}` },
+      body: singleForm
+    });
+    assert.strictEqual(singleRes.status, 201);
+    const singleReportResult = await singleRes.json();
+
+    // Verifikasi Sanitasi Anti-XSS pada Title & Report HTML
+    assert.strictEqual(singleReportResult.title, 'Laporan Evaluasi Bab 3 oleh Dosen');
+    assert.ok(!singleReportResult.report_html.includes('<script>'));
+    assert.ok(!singleReportResult.report_html.includes('onerror'));
+    assert.ok(singleReportResult.report_html.includes('<h3>Catatan Kemajuan Bab 3</h3>'));
+    assert.strictEqual(singleReportResult.mahasiswa_id, dimas.id);
+    assert.strictEqual(singleReportResult.status, 'REVIEWED');
+    assert.strictEqual(singleReportResult.attachments.length, 1);
+
+    // 3. Dosen menambahkan laporan untuk BEBERAPA mahasiswa bimbingan sekaligus (BATCH)
+    const batchForm = new FormData();
+    batchForm.append('academic_year_id', '2025/2026');
+    batchForm.append('status', 'APPROVED');
+    batchForm.append('title', 'Evaluasi Bersama Riset Laboratorium');
+    batchForm.append('report_html', '<h3>Instruksi Riset Laboratorium</h3><p>Seluruh mahasiswa wajib melengkapi data uji.</p>');
+    batchForm.append('mahasiswa_ids', JSON.stringify([dimas.id, hendra.id]));
+    batchForm.append(
+      'attachments',
+      new Blob(['%PDF-1.4\n% Panduan Praktikum dan Uji Laboratorium'], { type: 'application/pdf' }),
+      'Panduan_Uji_Lab.pdf'
+    );
+
+    const batchRes = await fetch(`${baseUrl}/api/reports`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${testDosenToken}` },
+      body: batchForm
+    });
+    assert.strictEqual(batchRes.status, 201);
+    const batchResult = await batchRes.json();
+    assert.strictEqual(batchResult.count, 2);
+    assert.strictEqual(batchResult.reports.length, 2);
+    const targetIdsInBatch = batchResult.reports.map((r) => r.mahasiswa_id);
+    assert.ok(targetIdsInBatch.includes(dimas.id));
+    assert.ok(targetIdsInBatch.includes(hendra.id));
+    assert.strictEqual(batchResult.reports[0].attachments.length, 1);
+    assert.strictEqual(batchResult.reports[1].attachments.length, 1);
+
+    // 4. Dosen mencoba membuat laporan untuk mahasiswa yang BUKAN bimbingannya -> Harus 403 Forbidden
+    const createOtherMhsRes = await fetch(`${baseUrl}/api/users`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        nip_or_npm: '2306999888',
+        name: 'Mahasiswa Dosen Lain',
+        email: 'other.mhs@ui.ac.id',
+        password: 'simta123',
+        is_active: true,
+        roles: ['MAHASISWA'],
+        degree: 'S1',
+        start_academic_year: '2025/2026',
+        supervision_status: 'DALAM_BIMBINGAN',
+        dosen_pembimbing_id: null
+      })
+    });
+    assert.strictEqual(createOtherMhsRes.status, 201);
+    const otherMhs = await createOtherMhsRes.json();
+
+    const unauthorizedForm = new FormData();
+    unauthorizedForm.append('academic_year_id', '2025/2026');
+    unauthorizedForm.append('title', 'Laporan Ilegal');
+    unauthorizedForm.append('report_html', '<p>Test</p>');
+    unauthorizedForm.append('mahasiswa_ids', otherMhs.id);
+
+    const unauthorizedRes = await fetch(`${baseUrl}/api/reports`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${testDosenToken}` },
+      body: unauthorizedForm
+    });
+    assert.strictEqual(unauthorizedRes.status, 403);
+    const unauthBody = await unauthorizedRes.json();
+    assert.ok(unauthBody.error.includes('hanya dapat menambahkan laporan untuk mahasiswa yang berada di bawah bimbingan Anda'));
+
+    // 5. Anti-SQL Injection pada mahasiswa_ids
+    const sqliForm = new FormData();
+    sqliForm.append('academic_year_id', '2025/2026');
+    sqliForm.append('title', 'Test SQL Injection');
+    sqliForm.append('report_html', '<p>Test</p>');
+    sqliForm.append('mahasiswa_ids', "'; DROP TABLE progress_reports; --");
+
+    const sqliRes = await fetch(`${baseUrl}/api/reports`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${testDosenToken}` },
+      body: sqliForm
+    });
+    assert.strictEqual(sqliRes.status, 400);
+    const sqliBody = await sqliRes.json();
+    assert.ok(sqliBody.error.includes('valid'));
+  });
+
   test('Mode Admin: Menampilkan seluruh user lengkap dengan role, tahun ajaran, dan status (Aktif/Tidak Aktif atau Bimbingan/Lulus/Tidak Selesai)', async () => {
     const res = await fetch(`${baseUrl}/api/users`, {
       headers: { Authorization: `Bearer ${adminToken}` }
